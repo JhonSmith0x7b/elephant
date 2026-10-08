@@ -1,0 +1,19 @@
+name: elephant-reader
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: reader
+      POSTGRES_DB: reader
+      POSTGRES_PASSWORD: ${LOCAL_DB_PASSWORD:?Set LOCAL_DB_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - reader-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reader -d reader"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+volumes:
+  reader-postgres:

@@ -1,0 +1,16 @@
+node_modules/
+.next/
+.env*
+!.env.example
+.vercel/
+*.tsbuildinfo
+.DS_Store
+coverage/
+.data/
+outputs/
+*.dump
+*.sql.gz
+*.pem
+*.key
+.codex/
+.agents/

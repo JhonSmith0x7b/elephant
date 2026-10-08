@@ -1,0 +1,40 @@
+{
+  "name": "elephant-reader",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/run-local.mjs dev",
+    "dev:local": "WATCHPACK_POLLING=1000 node scripts/run-local.mjs dev --webpack",
+    "build": "next build",
+    "start": "node scripts/run-local.mjs start",
+    "sync:worker": "tsx --env-file-if-exists=.env.local scripts/sync-worker.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "test:db": "tsx --env-file=.env.local --test tests/*.test.ts",
+    "db:migrate": "tsx --env-file=.env.local scripts/migrate.ts",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "auth:setup": "tsx --env-file=.env.local scripts/setup-auth.ts"
+  },
+  "dependencies": {
+    "better-auth": "1.7.7",
+    "drizzle-orm": "0.45.3",
+    "fast-xml-parser": "5.11.2",
+    "htmlparser2": "12.0.0",
+    "lucide-react": "1.52.0",
+    "next": "16.4.0",
+    "pg": "8.23.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.4",
+    "@types/pg": "8.23.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  }
+}

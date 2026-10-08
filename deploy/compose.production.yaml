@@ -1,0 +1,66 @@
+name: elephant
+
+x-app: &app
+  image: ${ELEPHANT_IMAGE:-elephant:bootstrap}
+  init: true
+  restart: unless-stopped
+  environment:
+    NODE_ENV: production
+    DATABASE_URL: ${DATABASE_URL:?Database URL is required}
+    BETTER_AUTH_URL: ${BETTER_AUTH_URL:?Public origin is required}
+    BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Auth secret is required}
+    ADMIN_EMAIL: ${ADMIN_EMAIL:?Owner email is required}
+    RSS_DNS_MODE: system
+  security_opt:
+    - no-new-privileges:true
+  cap_drop: [ALL]
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: reader
+      POSTGRES_DB: reader
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Database password is required}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U reader -d reader"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+  web:
+    <<: *app
+    ports:
+      - "127.0.0.1:3100:3000"
+    depends_on:
+      postgres: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+  worker:
+    <<: *app
+    command: [node, --import, tsx, scripts/sync-worker.ts]
+    depends_on:
+      postgres: {condition: service_healthy}
+    stop_grace_period: 220s
+    healthcheck:
+      test: [CMD, node, --import, tsx, --input-type=module, -e, "import { getPool } from './src/lib/db.ts'; try { const r=await getPool().query('SELECT worker_last_seen_at > now() - make_interval(mins => 6) AS healthy FROM sync_settings WHERE id = true'); if(!r.rows[0]?.healthy) process.exitCode=1; } catch { process.exitCode=1; } finally { await getPool().end(); }"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  database:

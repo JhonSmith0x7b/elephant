@@ -1,0 +1,46 @@
+.reader-custom-channels .masthead-main { gap: 42px; }
+.channel-nav-group { display: flex; align-items: center; flex: 1; min-width: 0; gap: 18px; }
+.channel-nav-group .channel-nav { flex: 1; min-width: 0; gap: 25px; overflow-x: auto; overflow-y: hidden; padding: 4px 3px 7px; scrollbar-width: thin; scrollbar-color: #ddd transparent; }
+.channel-nav-group .channel-nav button { flex-shrink: 0; max-height: 102px; }
+.channel-nav-label { display: block; max-height: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.channel-manage-trigger { flex-shrink: 0; flex-direction: column; gap: 6px; font-size: 10px; color: var(--muted); }
+.channel-manage-trigger:hover { color: var(--ink); }
+.reader-custom-channels .masthead-actions { flex-shrink: 0; }
+.reader-custom-channels .section-heading-title { min-width: 0; }
+.reader-custom-channels .section-heading h1 { overflow-wrap: anywhere; }
+.source-channel-editor { display: inline-flex; align-items: center; gap: 6px; min-width: 0; margin-top: 10px; font-size: 11px; color: var(--muted); }
+.source-channel-editor select { border: 1px solid var(--line); padding: 5px 24px 5px 7px; min-height: 30px; max-width: 230px; background-color: white; color: #555; font-size: 11px; text-overflow: ellipsis; }
+.source-channel-editor select:disabled { background-color: var(--soft); }
+.channel-manager-dialog { width: min(500px, calc(100vw - 32px)); }
+.channel-manager-list { display: grid; gap: 14px; }
+.channel-manager-form .field-label { margin-bottom: 7px; font-size: 11px; }
+.channel-name-input-row { display: flex; gap: 8px; align-items: stretch; }
+.channel-name-input-row input { flex: 1; }
+.channel-name-input-row .button { flex-shrink: 0; }
+.channel-add-form { border-top: 1px solid var(--line); padding-top: 21px; margin-top: 23px; }
+.channel-form-error { color: #8a3228; font-size: 12px; line-height: 1.7; margin-top: 8px; }
+.channel-manager-status { display: flex; align-items: flex-start; gap: 7px; color: #555; padding: 11px 12px; background: var(--soft); font-size: 12px; line-height: 1.7; margin-top: 17px; overflow-wrap: anywhere; }
+.channel-manager-status svg { margin-top: 3px; }
+.channel-manager-note { color: var(--muted); font-size: 11px; line-height: 1.8; margin-top: 21px; }
+@media (max-width: 1050px) {
+  .reader-custom-channels .masthead-main { gap: 24px; }
+  .channel-nav-group { gap: 10px; }
+  .channel-nav-group .channel-nav { gap: 18px; }
+  .channel-manage-trigger span { display: none; }
+}
+@media (max-width: 800px) {
+  .channel-nav-group { order: 3; flex: 1 1 100%; width: 100%; gap: 15px; }
+  .channel-nav-group .channel-nav { order: initial; width: auto; gap: 29px; padding: 4px 3px 0; justify-content: flex-start; }
+  .channel-nav-group .channel-nav button { max-width: 140px; min-height: 48px; }
+  .channel-nav-label { max-width: 138px; max-height: none; }
+  .channel-manage-trigger { flex-direction: row; margin-bottom: 12px; gap: 5px; }
+  .channel-manage-trigger span { display: inline; }
+}
+@media (max-width: 540px) {
+  .reader-custom-channels .masthead-main { gap: 21px 10px; }
+  .channel-nav-group .channel-nav { gap: 22px; }
+  .channel-nav-group { gap: 12px; }
+  .channel-manage-trigger { font-size: 10px; }
+  .source-channel-editor select { max-width: min(230px, 58vw); font-size: 14px; }
+  .channel-manager-form input, .channel-add-form input { font-size: 16px; }
+}

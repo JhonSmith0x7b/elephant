@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="ja" xml:base="https://example.com/journal/">
+  <title>本と日々</title>
+  <subtitle>文学の話</subtitle>
+  <link href="feed.xml" rel="self" />
+  <link href="https://example.com/journal/" rel="alternate" />
+  <author><name>Editorial Team</name></author>
+  <entry>
+    <id>tag:example.com,2026:entry-1</id>
+    <title>Reading across languages</title>
+    <link rel="self" href="entries/1.atom" />
+    <link rel="alternate" href="entries/1" />
+    <published>2026-10-08T18:20:00+09:00</published>
+    <updated>2026-10-09T10:00:00Z</updated>
+    <author><name>山田</name></author>
+    <summary type="html">&lt;p&gt;A &lt;em&gt;short&lt;/em&gt; introduction.&lt;/p&gt;</summary>
+    <content type="html"><![CDATA[<p>A longer article.</p><img src="https://example.com/color.jpg">]]></content>
+  </entry>
+  <entry>
+    <id>tag:example.com,2026:entry-2</id>
+    <title>Update is not publication</title>
+    <updated>2026-10-08T10:00:00Z</updated>
+    <content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml"><p>Nested <b>text</b></p><img src="/xhtml.jpg" /></div></content>
+  </entry>
+  <entry>
+    <id>tag:example.com,2026:entry-3</id>
+    <title>Encoded HTML</title>
+    <content type="html">&lt;p&gt;First &lt;strong&gt;bold&lt;/strong&gt; words.&lt;/p&gt;&lt;img src="https://example.com/encoded.jpg" /&gt;</content>
+  </entry>
+</feed>
