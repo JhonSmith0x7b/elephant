@@ -35,8 +35,8 @@ previous=""
 [[ ! -f "$root/current-revision" ]] || previous=$(cat "$root/current-revision")
 changed=0
 rollback() {
-  local code=$?
-  trap - ERR
+  local code=${1:-$?}
+  trap - ERR HUP INT TERM
   if [[ "$changed" == 1 && -n "$previous" && -f "$root/releases/$previous/compose.yaml" ]]; then
     printf 'Deployment failed; restoring previous application containers.\n' >&2
     ELEPHANT_IMAGE="elephant:$previous" docker compose --project-name elephant \
@@ -49,6 +49,9 @@ rollback() {
   exit "$code"
 }
 trap rollback ERR
+trap 'rollback 129' HUP
+trap 'rollback 130' INT
+trap 'rollback 143' TERM
 
 compose up -d --wait --wait-timeout 120 postgres
 # Both the scheduler and authenticated page actions can write to the database.
