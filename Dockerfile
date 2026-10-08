@@ -18,11 +18,12 @@ FROM base AS runtime
 ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0
-COPY --from=dependencies /app/node_modules ./node_modules
+COPY --from=dependencies --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/.next ./.next
-COPY --from=build /app/package.json /app/package-lock.json /app/tsconfig.json /app/next-env.d.ts /app/next.config.ts ./
-COPY --from=build /app/src ./src
-COPY --from=build /app/scripts ./scripts
+# Server checkouts may use umask 077; the runtime user must own copied sources.
+COPY --from=build --chown=node:node /app/package.json /app/package-lock.json /app/tsconfig.json /app/next-env.d.ts /app/next.config.ts ./
+COPY --from=build --chown=node:node /app/src ./src
+COPY --from=build --chown=node:node /app/scripts ./scripts
 USER node
 EXPOSE 3000
 # Compose runs the same image separately for web, worker and one-shot migrations.
