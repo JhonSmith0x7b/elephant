@@ -67,3 +67,7 @@ tailscale serve status
 ```
 
 健康接口只返回通用状态；文章、设置等接口仍需要管理员登录。
+
+## 同机 RSS 服务
+
+当前应用容器接入已有 `any2rss_default` 网络（可用 `RSS_DOCKER_NETWORK` 指定），web 和 worker 的 `RSS_LOCAL_FEED_HOSTS` 默认只允许 `any2rss-web-1`。订阅地址使用 `http://any2rss-web-1:8000/订阅路径`，无需公开宿主 8200 端口。重新部署自动恢复连接。部署到其他机器时需配置实际 RSS 网络和主机名。

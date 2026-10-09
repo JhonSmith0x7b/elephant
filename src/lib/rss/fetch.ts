@@ -39,7 +39,7 @@ function normalizedHost(hostname: string) {
 }
 
 function isLocalFeedHost(hostname: string): boolean {
-  return process.env.NODE_ENV === "development" && !process.env.VERCEL
+  return !process.env.VERCEL
     && (process.env.RSS_LOCAL_FEED_HOSTS ?? "").split(",")
       .some(host => host.trim() !== "" && normalizedHost(host.trim()) === normalizedHost(hostname));
 }

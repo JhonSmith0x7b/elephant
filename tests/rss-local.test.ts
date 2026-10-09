@@ -15,7 +15,7 @@ beforeEach(() => {
 afterEach(() => { process.env = original; });
 const unsafe = (error: unknown) => error instanceof RssError && error.code === "UNSAFE_URL";
 
-test("local feeds require an explicit host and a non-hosted development environment", () => {
+test("local feeds require an explicit host in development or self-hosted production", () => {
   for (const url of ["http://localhost:8000/feed", "http://127.0.0.1/feed", "http://[::1]/feed", "http://192.168.1.2/feed"]) {
     assert.equal(validateFeedUrl(url).href, url);
   }
@@ -23,7 +23,7 @@ test("local feeds require an explicit host and a non-hosted development environm
     assert.throws(() => validateFeedUrl(url), unsafe);
   }
   Object.assign(process.env, { NODE_ENV: "production" });
-  assert.throws(() => validateFeedUrl("http://localhost/feed"), unsafe);
+  assert.equal(validateFeedUrl("http://localhost/feed").hostname, "localhost");
   Object.assign(process.env, { NODE_ENV: "development" });
   process.env.VERCEL = "1";
   assert.throws(() => validateFeedUrl("http://localhost/feed"), unsafe);
@@ -65,4 +65,30 @@ test("local HTTP fetch uses system DNS even in cloudflare mode and rechecks redi
     server.close();
     await once(server, "close");
   }
+});
+
+
+test("production allowlist permits only the configured RSS container", async () => {
+  Object.assign(process.env, { NODE_ENV: "production", RSS_LOCAL_FEED_HOSTS: "any2rss-web-1" });
+  const resolve = async () => [{address:"172.23.0.2", family:4}];
+  assert.equal((await resolvePublicTarget("http://any2rss-web-1:8000/feed", resolve)).address, "172.23.0.2");
+  await assert.rejects(resolvePublicTarget("http://other-service/feed", resolve), unsafe);
+  await assert.rejects(resolvePublicTarget("http://any2rss-web-1/feed", async () => [{address:"169.254.169.254", family:4}]), unsafe);
+  assert.throws(() => validateFeedUrl("http://172.23.0.2/feed"), unsafe);
+});
+
+test("production allowlist fetches local feeds and rejects redirects to metadata", async () => {
+  Object.assign(process.env, { NODE_ENV: "production", RSS_LOCAL_FEED_HOSTS: "127.0.0.1", RSS_DNS_MODE: "cloudflare" });
+  const server = createServer((req, res) => {
+    if (req.url === "/blocked") res.writeHead(302, {Location:"http://169.254.169.254/latest/meta-data"}).end();
+    else if (req.url === "/redirect") res.writeHead(302, {Location:"/feed"}).end();
+    else res.end("<rss><channel><title>Internal</title></channel></rss>");
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${(server.address() as {port:number}).port}`;
+  try {
+    assert.match((await fetchFeedXml(`${base}/redirect`)).xml, /Internal/);
+    await assert.rejects(fetchFeedXml(`${base}/blocked`), unsafe);
+  } finally {server.close(); await once(server, "close");}
 });

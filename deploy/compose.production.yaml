@@ -11,6 +11,8 @@ x-app: &app
     BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Auth secret is required}
     ADMIN_EMAIL: ${ADMIN_EMAIL:?Owner email is required}
     RSS_DNS_MODE: system
+    RSS_LOCAL_FEED_HOSTS: ${RSS_LOCAL_FEED_HOSTS:-any2rss-web-1}
+  networks: [default, rss]
   security_opt:
     - no-new-privileges:true
   cap_drop: [ALL]
@@ -64,3 +66,9 @@ services:
 
 volumes:
   database:
+
+# Private access to the same-server RSS converter.
+networks:
+  rss:
+    external: true
+    name: ${RSS_DOCKER_NETWORK:-any2rss_default}
