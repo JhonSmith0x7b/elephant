@@ -51,10 +51,18 @@ for (const [address, prefix] of [["127.0.0.0", 8], ["10.0.0.0", 8], ["172.16.0.0
 localAddresses.addAddress("::1", "ipv6");
 localAddresses.addSubnet("fc00::", 7, "ipv6");
 
+const tailscaleAddresses = new BlockList();
+tailscaleAddresses.addSubnet("100.64.0.0", 10, "ipv4");
+
 function isAllowedAddress(address: string, hostname: string) {
   if (isPublicAddress(address)) return true;
   const family = isIP(address);
-  return isLocalFeedHost(hostname) && (family === 4 || family === 6)
+  if (!isLocalFeedHost(hostname)) return false;
+  // Only explicitly listed Tailscale names may use CGNAT addresses.
+  // Alibaba metadata also uses this range and must remain inaccessible.
+  if (family === 4 && normalizedHost(hostname).endsWith(".ts.net")
+    && address !== "100.100.100.200" && tailscaleAddresses.check(address, "ipv4")) return true;
+  return (family === 4 || family === 6)
     && localAddresses.check(address, family === 4 ? "ipv4" : "ipv6");
 }
 

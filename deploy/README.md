@@ -70,4 +70,6 @@ tailscale serve status
 
 ## 同机 RSS 服务
 
-当前应用容器接入已有 `any2rss_default` 网络（可用 `RSS_DOCKER_NETWORK` 指定），web 和 worker 的 `RSS_LOCAL_FEED_HOSTS` 默认只允许 `any2rss-web-1`。订阅地址使用 `http://any2rss-web-1:8000/订阅路径`，无需公开宿主 8200 端口。重新部署自动恢复连接。部署到其他机器时需配置实际 RSS 网络和主机名。
+当前应用容器接入已有 `any2rss_default` 网络（可用 `RSS_DOCKER_NETWORK` 指定），web 和 worker 的 `RSS_LOCAL_FEED_HOSTS` 默认允许 `any2rss-web-1` 和 `jp0x01.tail409a2a.ts.net`。订阅地址使用 `http://any2rss-web-1:8000/订阅路径`，无需公开宿主 8200 端口。重新部署自动恢复连接。部署到其他机器时需配置实际 RSS 网络和主机名。
+
+也可直接导入原有 HTTPS Funnel 地址 `https://jp0x01.tail409a2a.ts.net:10000/any2rss/feeds/文件.xml`，保留其 token 查询参数。指定 Tailscale 域名解析到 CGNAT 地址时允许访问，其他主机及元数据地址仍拦截。

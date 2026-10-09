@@ -11,7 +11,7 @@ x-app: &app
     BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Auth secret is required}
     ADMIN_EMAIL: ${ADMIN_EMAIL:?Owner email is required}
     RSS_DNS_MODE: system
-    RSS_LOCAL_FEED_HOSTS: ${RSS_LOCAL_FEED_HOSTS:-any2rss-web-1}
+    RSS_LOCAL_FEED_HOSTS: ${RSS_LOCAL_FEED_HOSTS:-any2rss-web-1,jp0x01.tail409a2a.ts.net}
   networks: [default, rss]
   security_opt:
     - no-new-privileges:true

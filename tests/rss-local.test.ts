@@ -92,3 +92,17 @@ test("production allowlist fetches local feeds and rejects redirects to metadata
     await assert.rejects(fetchFeedXml(`${base}/blocked`), unsafe);
   } finally {server.close(); await once(server, "close");}
 });
+
+
+test("only allowlisted Tailscale names can resolve to CGNAT and metadata stays blocked", async () => {
+  Object.assign(process.env, { NODE_ENV: "production", RSS_LOCAL_FEED_HOSTS: "jp0x01.tail409a2a.ts.net,reader.local" });
+  const resolver = async () => [{address:"100.65.121.39", family:4}];
+  const url = "https://jp0x01.tail409a2a.ts.net:10000/any2rss/feeds/example.xml?token=test";
+  const target = await resolvePublicTarget(url, resolver);
+  assert.equal(target.address, "100.65.121.39");
+  assert.equal(target.url.href, url);
+  for (const url of ["http://other.ts.net/feed", "http://reader.local/feed", "http://100.65.121.39/feed"]) {
+    await assert.rejects(resolvePublicTarget(url, resolver), unsafe);
+  }
+  await assert.rejects(resolvePublicTarget(url, async () => [{address:"100.100.100.200", family:4}]), unsafe);
+});
