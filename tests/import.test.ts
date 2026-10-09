@@ -22,6 +22,7 @@ import {
   updateSourceChannel,
 } from "../src/lib/library";
 import type { ParsedFeed, ParsedFeedItem } from "../src/lib/rss/types";
+import { parseFeed } from "../src/lib/rss/parse";
 
 const originalDatabaseUrl = process.env.DATABASE_URL;
 const schemaName = `rss_import_test_${randomUUID().replaceAll("-", "")}`;
@@ -212,6 +213,38 @@ describe("RSS imports against an isolated PostgreSQL schema", { skip: !originalD
     assert.equal(library.articles.find((article) => article.title === "Article undated")?.publishedAt, null);
     const actual = await getPool().query("SELECT count(*)::int AS total FROM articles");
     assert.equal(library.counts.articles, actual.rows[0].total);
+  });
+
+  it("skips damaged upstream titles without overwriting snapshots or losing read and bookmark state", async () => {
+    const data = feed([item("encoding", { title: "日本监管机构要求金融公司审查网络安全" })]);
+    const imported = await confirmImport(await createPreview(data), "36氪", "world");
+    const [{ id }] = (await getPool().query("SELECT id FROM articles WHERE source_id = $1", [imported.sourceId])).rows;
+    await setArticleBookmark(id, true);
+    await setArticleRead(id, true);
+    const original = await getStoredArticle(id);
+    const damaged = parseFeed(`<rss version="2.0"><channel><title>News</title>
+      <item><guid>encoding</guid><link>https://example.com/articles/encoding</link><title>日���监管机构</title><description>Changed body</description></item>
+      <item><guid>bad-new</guid><title>日&#xfffd;监管机构</title></item>
+      <item><guid>valid-new</guid><title>正常新闻</title></item>
+      </channel></rss>`, data.url);
+    const result = await importFetchedFeed(imported.sourceId, damaged);
+    assert.equal(result.insertedCount, 1);
+    assert.equal(result.updatedCount, 0);
+    assert.equal(result.totalCount, 2);
+    assert.deepEqual(await getStoredArticle(id), original);
+    assert.match((await getSource(imported.sourceId))!.lastError!, /2 条标题含乱码/);
+    const versionCount = await getPool().query("SELECT count(*)::int AS n FROM article_versions WHERE article_id = $1", [id]);
+    assert.equal(versionCount.rows[0].n, 1);
+    assert.ok((await listLibrary({ source: imported.sourceId })).articles.some((article) => article.id === id));
+
+    data.items.push(item("bad-new", { url: null, title: "修复后的标题" }));
+    const recovered = await importFetchedFeed(imported.sourceId, data);
+    assert.equal(recovered.insertedCount, 1);
+    assert.equal(recovered.totalCount, 3);
+    assert.equal((await getSource(imported.sourceId))?.lastError, null);
+    assert.deepEqual(await getStoredArticle(id), original);
+    await setArticleBookmark(id, false);
+    await setArticleRead(id, false);
   });
 
   it("stores complete immutable versions and reuses the exact current version on repeat or content reversion", async () => {

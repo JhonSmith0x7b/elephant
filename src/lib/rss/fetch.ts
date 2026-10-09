@@ -179,6 +179,20 @@ async function resolveWithCloudflare(hostname: string, signal: AbortSignal): Pro
   return answers.flat();
 }
 
+export function decodeFeedBody(body: Buffer, contentType?: string): string {
+  const head = body.subarray(0, 256).toString("ascii");
+  const encoding = head.match(/<\?xml[^>]*encoding=["']([^"']+)/i)?.[1]
+    ?? contentType?.match(/charset=["']?([^;"'\s]+)/i)?.[1]
+    ?? "utf-8";
+  let decoder: TextDecoder;
+  try { decoder = new TextDecoder(encoding, { fatal: true }); } catch {
+    throw new RssError("INVALID_XML", "该订阅使用了暂不支持的文字编码。");
+  }
+  try { return decoder.decode(body); } catch {
+    throw new RssError("INVALID_XML", "订阅内容包含损坏的文字编码，已停止本次同步，请稍后重试。", 502);
+  }
+}
+
 export async function fetchFeedXml(input: string): Promise<{ xml: string; url: string }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -199,15 +213,7 @@ export async function fetchFeedXml(input: string): Promise<{ xml: string; url: s
         // Every redirected destination passes the same URL and DNS checks.
         continue;
       }
-      const head = response.body.subarray(0, 256).toString("ascii");
-      const encoding = head.match(/<\?xml[^>]*encoding=["']([^"']+)/i)?.[1]
-        ?? response.contentType?.match(/charset=["']?([^;"'\s]+)/i)?.[1]
-        ?? "utf-8";
-      let xml: string;
-      try { xml = new TextDecoder(encoding).decode(response.body); } catch {
-        throw new RssError("INVALID_XML", "该订阅使用了暂不支持的文字编码。");
-      }
-      return { xml, url: target.url.href };
+      return { xml: decodeFeedBody(response.body, response.contentType), url: target.url.href };
     }
     throw new RssError("TOO_MANY_REDIRECTS", "订阅地址跳转次数过多。");
   } catch (error) {

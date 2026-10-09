@@ -180,8 +180,15 @@ async function writeFeed(
   const contentByArticle = new Map<string, VersionContent>(currentVersions.map((version) => [version.articleId, version]));
   const pendingVersions = new Map<string, VersionContent>();
   const memberships = new Map<string, { articleId: string; sourceId: string; externalId: string | null }>();
+  let damagedTitles = 0;
 
   for (const item of feed.items) {
+    // Some publishers emit valid UTF-8 containing literal replacement characters.
+    // Keep the previous snapshot until the source supplies a readable title again.
+    if (item.title.includes("\uFFFD")) {
+      damagedTitles++;
+      continue;
+    }
     const incomingKey = itemIdentity(item);
     const guidMatch = item.externalId ? byExternalId.get(item.externalId) : undefined;
     // A GUID fallback can fill a missing permalink, but must not collapse two
@@ -275,7 +282,12 @@ async function writeFeed(
       WHERE a.id = v.article_id
     `);
   }
-  await tx.update(sources).set({ lastFetchedAt: now, lastError: null })
+  await tx.update(sources).set({
+    lastFetchedAt: now,
+    lastError: damagedTitles
+      ? `上游 RSS 有 ${damagedTitles} 条标题含乱码，本次已跳过，已有文章保持原样。`
+      : null,
+  })
     .where(eq(sources.id, sourceId));
   const [totals] = await tx.select({ count: count() }).from(articleSources).where(eq(articleSources.sourceId, sourceId));
   const updatedCount = [...pending.keys()].filter((id) => existingIds.has(id)).length;
