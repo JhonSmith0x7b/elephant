@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { feedHref, libraryHref, readFeedLocation, type FeedLocation } from "@/lib/feed-location";
 import BrandWordmark from "@/components/brand-wordmark";
 import ArticleCard from "@/components/article-card";
+import FeedNavigation from "@/components/feed-navigation";
 import ChannelManager from "@/components/channel-manager";
 import SyncSettings from "@/components/sync-settings";
 import {
@@ -85,6 +86,8 @@ function errorMessage(error: unknown) {
 }
 
 export default function ReaderApp() {
+  const mastheadRef = useRef<HTMLElement>(null);
+  const headingRef = useRef<HTMLDivElement>(null);
   const [lastLibrary, setLastLibrary] = useState<Library | null>(null);
   const [loading, setLoading] = useState(true);
   const [libraryError, setLibraryError] = useState("");
@@ -405,7 +408,10 @@ export default function ReaderApp() {
 
   return (
     <div className="reading-room reader-custom-channels">
-      <header className="masthead">
+      <FeedNavigation mastheadRef={mastheadRef} headingRef={headingRef}
+        channels={channels} channel={channel}
+        onSelect={id => navigateFeed({ channel: id, source: "all" })} />
+      <header ref={mastheadRef} className="masthead">
         <div className="masthead-top"><span>阅读，把世界慢慢展开。</span><span>私人信息流</span></div>
         <div className="masthead-main">
           <button className="brand" onClick={() => navigateFeed({ channel: "all", source: "all" })} aria-label="大象，返回总览">
@@ -429,7 +435,7 @@ export default function ReaderApp() {
       </header>
 
       <main>
-        <div className="section-heading">
+        <div ref={headingRef} className="section-heading">
           <div className="section-heading-title"><h1>{channel === "all" || !activeName ? "我的信息流" : `${activeName}·阅览`}</h1>
             <span className="section-caption">{library ? `${library.counts.sources} 个来源 · ${library.counts.articles} 篇收录` : "从一个好来源开始"}</span>
           </div>

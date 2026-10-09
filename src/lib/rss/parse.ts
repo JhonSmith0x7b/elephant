@@ -1,3 +1,4 @@
+import { articleLinkUrl, articlePlainText, storedMarkdownLink } from "../article-links";
 import { createHash } from "node:crypto";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { Parser as HtmlParser } from "htmlparser2";
@@ -64,8 +65,11 @@ export function normalizeArticleUrl(input: string, base = input): string | null 
   return url.href;
 }
 
-function readHtml(value: unknown, base: string): { text: string; imageUrl: string | null } {
+function readHtml(value: unknown, base: string): { text: string; body: string; imageUrl: string | null } {
   const parts: string[] = [];
+  const bodyParts: string[] = [];
+  let anchor: { start: number; href: string } | null = null;
+  const append = (text: string) => { parts.push(text); bodyParts.push(text); };
   let ignoredDepth = 0;
   let imageUrl: string | null = null;
   const ignoredTags = new Set(["script", "style", "noscript", "iframe", "svg", "template"]);
@@ -74,20 +78,31 @@ function readHtml(value: unknown, base: string): { text: string; imageUrl: strin
     onopentag(name, attributes) {
       if (ignoredTags.has(name)) ignoredDepth += 1;
       if (ignoredDepth) return;
-      if (blockTags.has(name)) parts.push("\n");
+      if (blockTags.has(name)) append("\n");
+      if (name === "a") {
+        const href = articleLinkUrl(attributes.href || "", base);
+        if (href) anchor = { start: bodyParts.length, href };
+      }
       if (name === "img" && !imageUrl) {
         imageUrl = safeHttpUrl(attributes["data-src"] || attributes.src, base);
       }
     },
-    ontext(text) { if (!ignoredDepth) parts.push(text); },
+    ontext(text) { if (!ignoredDepth) append(text); },
     onclosetag(name) {
       if (ignoredTags.has(name)) ignoredDepth = Math.max(0, ignoredDepth - 1);
-      if (!ignoredDepth && blockTags.has(name)) parts.push("\n");
+      if (!ignoredDepth && name === "a" && anchor) {
+        const label = bodyParts.splice(anchor.start).join("");
+        bodyParts.push(storedMarkdownLink(label, anchor.href));
+        anchor = null;
+      }
+      if (!ignoredDepth && blockTags.has(name)) append("\n");
     },
   }, { decodeEntities: true });
   parser.end(string(value));
+  const clean = (text: string) => text.replace(/[\t\r\f\v \u00a0]+/g, " ").replace(/ *\n */g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   return {
-    text: parts.join("").replace(/[\t\r\f\v \u00a0]+/g, " ").replace(/ *\n */g, "\n").replace(/\n{3,}/g, "\n\n").trim(),
+    text: articlePlainText(clean(parts.join("")), base),
+    body: clean(bodyParts.join("")),
     imageUrl,
   };
 }
@@ -181,7 +196,7 @@ function parseItem(item: unknown, feed: unknown, feedUrl: string, atom: boolean)
     publishedAt,
     updatedAt: date(field(item, "updated") ?? field(item, "modified")),
     summary: (summary.text || content.text).slice(0, 1200) || null,
-    content: content.text || summary.text || null,
+    content: content.body || summary.body || null,
     contentKind: content.text ? "rss_content" : "rss_description",
     imageUrl: mediaImage(item, base) ?? content.imageUrl ?? summary.imageUrl,
   };

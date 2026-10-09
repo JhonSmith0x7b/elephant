@@ -1,0 +1,39 @@
+.compact-feed-bar {
+  position: fixed; inset: 0 0 auto; z-index: 40;
+  background: var(--paper); border-bottom: 1px solid var(--line);
+  box-shadow: 0 2px 10px #00000004;
+}
+.compact-feed-inner {
+  display: flex; align-items: center; gap: 30px; height: 48px;
+  max-width: 1380px; margin-inline: auto; padding-inline: 46px;
+}
+.compact-feed-brand { flex-shrink: 0; font-family: "Songti SC", "STSong", serif; font-size: 19px; letter-spacing: 2px; }
+.compact-channel-nav {
+  display: flex; align-items: stretch; align-self: stretch; gap: 28px;
+  min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+}
+.compact-channel-nav::-webkit-scrollbar { display: none; }
+.compact-channel-nav button {
+  flex-shrink: 0; position: relative; padding: 0 2px;
+  background: transparent; color: var(--muted); font-size: 13px;
+  max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.compact-channel-nav button[aria-pressed="true"] { color: var(--ink); }
+.compact-channel-nav button[aria-pressed="true"]::after { content: ""; position: absolute; inset: auto 2px 0; height: 2px; background: var(--ink); }
+.compact-channel-nav button:focus-visible { outline: 2px solid var(--ink); outline-offset: -4px; }
+.reader-custom-channels .section-heading { scroll-margin-top: 68px; }
+.back-to-top {
+  position: fixed; right: 24px; bottom: max(24px, env(safe-area-inset-bottom)); z-index: 40;
+  width: 42px; height: 42px; display: grid; place-items: center;
+  border: 1px solid #dededb; border-radius: 50%; color: #666; background: var(--paper);
+  box-shadow: 0 3px 12px #00000008;
+}
+.back-to-top:hover { color: var(--ink); border-color: #999; }
+.back-to-top:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+@media (max-width: 1050px) { .compact-feed-inner { padding-inline: 30px; } }
+@media (max-width: 540px) {
+  .compact-feed-inner { padding-inline: 20px; gap: 20px; height: 46px; }
+  .compact-channel-nav { gap: 23px; }
+  .compact-channel-nav button { font-size: 13px; max-width: 140px; }
+  .back-to-top { right: 16px; bottom: max(18px, env(safe-area-inset-bottom)); }
+}

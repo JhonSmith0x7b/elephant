@@ -1,0 +1,9 @@
+.stored-body-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: #9b9994;
+  text-underline-offset: 0.2em;
+  overflow-wrap: anywhere;
+}
+.stored-body-link:hover { text-decoration-color: currentColor; }
+.stored-body-link:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
