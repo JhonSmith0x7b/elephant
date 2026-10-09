@@ -128,7 +128,13 @@ test("URL normalization only removes fragments and recognized tracking parameter
   assert.equal(normalizeArticleUrl("javascript:alert(1)"), null);
 });
 
-test("SSRF rejects private, loopback, link-local, reserved and alternate IP spellings", () => {
+test("SSRF rejects private, loopback, link-local, reserved and alternate IP spellings", (t) => {
+  const hosts = process.env.RSS_LOCAL_FEED_HOSTS;
+  delete process.env.RSS_LOCAL_FEED_HOSTS;
+  t.after(() => {
+    if (hosts === undefined) delete process.env.RSS_LOCAL_FEED_HOSTS;
+    else process.env.RSS_LOCAL_FEED_HOSTS = hosts;
+  });
   for (const url of [
     "file:///etc/passwd", "http://localhost/rss", "http://127.0.0.1/feed", "http://127.1/",
     "http://2130706433/", "http://0x7f000001/", "http://10.1.2.3/", "http://172.20.0.1/",
