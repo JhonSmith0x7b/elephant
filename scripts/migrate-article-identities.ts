@@ -42,6 +42,7 @@ async function mergeVersions(client: PoolClient, survivorId: string, articles: S
       await client.query("UPDATE article_versions SET stored_at = $1 WHERE id = $2", [retained.stored_at, retained.id]);
     }
     await client.query("UPDATE articles SET current_version_id = $1 WHERE current_version_id = $2", [retained.id, version.id]);
+    await client.query("UPDATE article_sources SET current_version_id = $1 WHERE current_version_id = $2", [retained.id, version.id]);
     await client.query("DELETE FROM article_versions WHERE id = $1", [version.id]);
   }
   // Historical snapshots survive the merge, but must not replace a publisher's
@@ -59,14 +60,22 @@ async function mergeArticles(client: PoolClient, articles: SavedArticle[], ident
   const duplicateIds = articleIds.slice(1);
   const bestVersion = await mergeVersions(client, survivor.id, articles);
   await client.query(`
-    INSERT INTO article_sources (article_id, source_id, external_id)
-    SELECT $1, source_id, external_id FROM (
-      SELECT DISTINCT ON (source_id) source_id, external_id
+    INSERT INTO article_sources (article_id, source_id, external_id, title, summary, current_version_id)
+    SELECT $1, links.source_id, (
+      SELECT external_id FROM article_sources identifiers
+      WHERE identifiers.article_id = ANY($2::uuid[]) AND identifiers.source_id = links.source_id
+        AND identifiers.external_id IS NOT NULL
+      ORDER BY (identifiers.article_id = $1) DESC, identifiers.article_id LIMIT 1
+    ), title, summary, current_version_id FROM (
+      SELECT DISTINCT ON (source_id) source_id, title, summary, current_version_id
       FROM article_sources WHERE article_id = ANY($2::uuid[])
-      ORDER BY source_id, (external_id IS NOT NULL) DESC, (article_id = $1) DESC, article_id
+      ORDER BY source_id, (current_version_id IS NOT NULL) DESC,
+        (title IS NOT NULL) DESC, (article_id = $1) DESC, article_id
     ) links
     ON CONFLICT (article_id, source_id) DO UPDATE SET
-      external_id = COALESCE(article_sources.external_id, excluded.external_id)`, [survivor.id, articleIds]);
+      external_id = COALESCE(article_sources.external_id, excluded.external_id),
+      title = excluded.title, summary = excluded.summary,
+      current_version_id = excluded.current_version_id`, [survivor.id, articleIds]);
   await client.query(`
     INSERT INTO article_bookmarks (article_id, bookmarked_at)
     SELECT $1, MIN(bookmarked_at) FROM article_bookmarks WHERE article_id = ANY($2::uuid[])

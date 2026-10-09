@@ -401,6 +401,100 @@ describe("RSS imports against an isolated PostgreSQL schema", { skip: !originalD
     assert.equal(savedOriginal.rows[0].body, original.body);
   });
 
+  it("keeps translated and original snapshots independent while sharing article identity and reader state", async () => {
+    const english = feed([item("source-language", { title: "Five reviews", summary: "English summary", content: "Long English review. ".repeat(100) })]);
+    const en = await confirmImport(await createPreview(english), "English source", "literature");
+    const id = (await listLibrary({ source: en.sourceId })).articles[0].id;
+    await setArticleBookmark(id, true);
+    await setArticleRead(id, true);
+    const original = (await getStoredArticle(id))!;
+    const chinese = { ...feed([item("source-language", { title: "五篇书评", summary: "中文摘要", content: "中文正文。" })]), language: "zh-CN" };
+    const zh = await confirmImport(await createPreview(chinese), "Chinese source", "world");
+    assert.equal(zh.insertedCount, 0);
+    const saved = (await getStoredArticle(id, zh.sourceId))!;
+    assert.equal(saved.title, "五篇书评");
+    assert.equal(saved.summary, "中文摘要");
+    assert.equal(saved.sourceId, zh.sourceId);
+    assert.equal(saved.sourceName, "Chinese source");
+    assert.equal(saved.version?.body, "中文正文。");
+    assert.equal(saved.version?.language, "zh-CN");
+    assert.equal(saved.bookmarkedAt, original.bookmarkedAt);
+    assert.equal(saved.readAt, original.readAt);
+    assert.deepEqual((await getStoredArticle(id))!.version, original.version);
+    assert.equal((await getStoredArticle(id))!.summary, "English summary");
+    assert.equal((await listLibrary({ source: zh.sourceId })).articles[0].title, "五篇书评");
+    const channelItem = (await listLibrary({ channel: "world" })).articles.find((article) => article.id === id)!;
+    assert.equal(channelItem.sourceId, zh.sourceId);
+    assert.equal(channelItem.summary, "中文摘要");
+    assert.equal((await listBookmarks()).articles.find((article) => article.id === id)!.sourceId, en.sourceId);
+    chinese.items[0].content = "更新后的中文正文。";
+    chinese.items[0].title = "更新后的五篇书评";
+    await importFetchedFeed(zh.sourceId, chinese);
+    const revised = (await getStoredArticle(id, zh.sourceId))!;
+    assert.notEqual(revised.version?.id, saved.version?.id);
+    assert.equal(revised.version?.body, chinese.items[0].content);
+    english.items[0].content = "An updated English review.";
+    await importFetchedFeed(en.sourceId, english);
+    assert.deepEqual((await getStoredArticle(id, zh.sourceId))!.version, revised.version);
+    assert.equal((await getStoredArticle(id))!.version?.body, english.items[0].content);
+    chinese.items[0].content = null;
+    chinese.items[0].summary = "Only a short description.";
+    chinese.items[0].title = "A changed description headline";
+    await importFetchedFeed(zh.sourceId, chinese);
+    assert.deepEqual((await getStoredArticle(id, zh.sourceId))!.version, revised.version);
+    assert.equal((await getStoredArticle(id, zh.sourceId))!.title, revised.title);
+    assert.equal((await getStoredArticle(id, zh.sourceId))!.summary, revised.summary);
+    assert.equal(await getStoredArticle(id, randomUUID()), null);
+    await setArticleBookmark(id, false);
+  });
+
+  it("does not borrow a primary full version for a secondary description-only source", async () => {
+    const en = await confirmImport(await createPreview(feed([item("source-description", { content: "An English full article." })])), "Full source", "literature");
+    const id = (await listLibrary({ source: en.sourceId })).articles[0].id;
+    const zh = await confirmImport(await createPreview({ ...feed([item("source-description", { title: "中文标题", summary: "中文短摘要", content: null })]), language: "zh-CN" }), "Description source", "literature");
+    const article = (await getStoredArticle(id, zh.sourceId))!;
+    assert.equal(article.title, "中文标题");
+    assert.equal(article.version?.body, "中文短摘要");
+    assert.equal(article.version?.contentKind, "rss_description");
+    assert.equal((await getStoredArticle(id))!.version?.body, "An English full article.");
+  });
+
+  it("retains a coherent source snapshot for empty refreshes and duplicate full-to-summary entries", async () => {
+    const full = item("duplicate-source-version", { title: "Complete title", content: "Complete body", summary: "Complete summary" });
+    const data = feed([full, { ...full, title: "Description title", content: null, summary: "Description summary" }]);
+    const source = await confirmImport(await createPreview(data), "Duplicate entries", "literature");
+    const id = (await listLibrary({ source: source.sourceId })).articles[0].id;
+    const original = (await getStoredArticle(id, source.sourceId))!;
+    assert.equal(original.title, "Complete title");
+    assert.equal(original.summary, "Complete summary");
+    assert.equal(original.version?.title, original.title);
+    assert.equal(original.version?.body, "Complete body");
+    await importFetchedFeed(source.sourceId, { ...data, items: [{ ...full, title: "Empty update", content: null, summary: null }] });
+    const refreshed = (await getStoredArticle(id, source.sourceId))!;
+    assert.equal(refreshed.title, original.title);
+    assert.equal(refreshed.summary, original.summary);
+    assert.deepEqual(refreshed.version, original.version);
+  });
+
+  it("backfills only primary source evidence and never relabels unknown legacy secondary content", async () => {
+    const en = await confirmImport(await createPreview(feed([item("legacy-source-evidence")])), "Legacy primary", "literature");
+    const id = (await listLibrary({ source: en.sourceId })).articles[0].id;
+    const secondaryId = randomUUID();
+    await getPool().query("INSERT INTO sources (id, name, feed_url, channel) VALUES ($1, 'Legacy secondary', $2, 'world')", [secondaryId, `https://example.com/${secondaryId}/feed`]);
+    await getPool().query("INSERT INTO article_sources (article_id, source_id) VALUES ($1, $2)", [id, secondaryId]);
+    await getPool().query("UPDATE article_sources SET title = NULL, summary = NULL, current_version_id = NULL WHERE article_id = $1", [id]);
+    await migrate(getPool());
+    assert.ok((await getStoredArticle(id))!.version);
+    const secondary = (await getStoredArticle(id, secondaryId))!;
+    assert.equal(secondary.version, null);
+    assert.equal(secondary.summary, null);
+    await importFetchedFeed(secondaryId, { ...feed([item("legacy-source-evidence", { title: "真实中文标题", summary: "真实中文摘要", content: "真实中文正文" })]), language: "zh-CN" });
+    const observed = (await getStoredArticle(id, secondaryId))!;
+    await migrate(getPool());
+    assert.deepEqual((await getStoredArticle(id, secondaryId))!.version, observed.version);
+    assert.equal((await getStoredArticle(id, secondaryId))!.summary, "真实中文摘要");
+  });
+
   it("persists idempotent bookmarks and cancellation without changing stored content", async () => {
     const data = feed([item("bookmark-idempotent")]);
     const imported = await confirmImport(await createPreview(data), "Bookmark", "literature");

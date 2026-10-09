@@ -163,6 +163,17 @@ export async function migrate(pool: Pool = getPool()): Promise<void> {
         SELECT id FROM article_versions WHERE article_id = $1 AND content_hash = $2
       ) WHERE id = $1`, [article.id, hash]);
     }
+    await client.query(`
+      ALTER TABLE article_sources ADD COLUMN IF NOT EXISTS title text;
+      ALTER TABLE article_sources ADD COLUMN IF NOT EXISTS summary text;
+      ALTER TABLE article_sources ADD COLUMN IF NOT EXISTS current_version_id uuid
+        REFERENCES article_versions(id) ON DELETE SET NULL;
+      INSERT INTO article_sources (article_id, source_id, external_id, title, summary, current_version_id)
+      SELECT id, source_id, external_id, title, summary, current_version_id FROM articles
+      ON CONFLICT (article_id, source_id) DO UPDATE SET
+        title = excluded.title, summary = excluded.summary, current_version_id = excluded.current_version_id
+      WHERE article_sources.title IS NULL;
+    `);
     await migrateArticleIdentities(client);
     await migrateSyncSettings(client);
     await client.query("COMMIT");

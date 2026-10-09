@@ -33,9 +33,17 @@ export function feedReturnHref(value: unknown): string {
   return feedHref(readFeedLocation(new URLSearchParams(value.slice(2))));
 }
 
-export function articleHref(id: string, returnTo = "/"): string {
+export function articleSourceId(source: unknown, from?: unknown): string | undefined {
+  const candidate = typeof source === "string" ? source
+    : readFeedLocation(new URLSearchParams(feedReturnHref(from).slice(2))).source;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(candidate)
+    ? candidate : undefined;
+}
+
+export function articleHref(id: string, returnTo = "/", sourceId?: string): string {
   const params = new URLSearchParams();
   const from = feedReturnHref(returnTo);
   if (from !== "/") params.set("from", from);
+  if (sourceId) params.set("source", sourceId);
   return `/articles/${encodeURIComponent(id)}${params.size ? `?${params}` : ""}`;
 }

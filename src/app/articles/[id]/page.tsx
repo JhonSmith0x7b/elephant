@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import StoredArticleView from "@/components/stored-article";
 import { hasOwnerSession, isLocalDevelopment } from "@/lib/auth";
 import { getStoredArticle } from "@/lib/library";
-import { feedReturnHref } from "@/lib/feed-location";
+import { articleSourceId, feedReturnHref } from "@/lib/feed-location";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -12,7 +12,7 @@ export const metadata: Metadata = { title: "已保存文章 · 大象" };
 
 export default async function ArticlePage({ params, searchParams }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ from?: string | string[] }>;
+  searchParams: Promise<{ from?: string | string[]; source?: string | string[] }>;
 }) {
   // Check access before reading any private saved content from the database.
   if (!isLocalDevelopment()) {
@@ -25,8 +25,8 @@ export default async function ArticlePage({ params, searchParams }: {
   }
   const { id } = await params;
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) notFound();
-  const article = await getStoredArticle(id);
-  if (!article) notFound();
   const query = await searchParams;
+  const article = await getStoredArticle(id, articleSourceId(query.source, query.from));
+  if (!article) notFound();
   return <StoredArticleView article={article} returnTo={feedReturnHref(query.from)} />;
 }

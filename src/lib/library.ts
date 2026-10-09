@@ -158,7 +158,7 @@ async function writeFeed(
   const keys = feed.items.map(itemIdentity);
   const urlKeys = keys.filter((key) => key.startsWith("url:"));
   const externalIds = feed.items.map((item) => item.externalId).filter(Boolean);
-  const existingRows = keys.length ? await tx.select({ article: articles, externalId: articleSources.externalId })
+  const existingRows = keys.length ? await tx.select({ article: articles, membership: articleSources, externalId: articleSources.externalId })
     .from(articles).leftJoin(articleSources, and(
       eq(articleSources.articleId, articles.id), eq(articleSources.sourceId, sourceId),
     )).where(or(
@@ -174,12 +174,13 @@ async function writeFeed(
     .map((row) => [row.externalId!, row.article]));
   const existingIds = new Set(existing.map((article) => article.id));
   const pending = new Map<string, Article>();
-  const currentIds = existing.map((article) => article.currentVersionId).filter((id): id is string => !!id);
+  const snapshots = new Map(existingRows.filter((row) => row.membership).map((row) => [row.article.id, row.membership!]));
+  const currentIds = existingRows.map((row) => row.membership?.currentVersionId).filter((id): id is string => !!id);
   const currentVersions = currentIds.length ? await tx.select().from(articleVersions)
     .where(inArray(articleVersions.id, currentIds)) : [];
   const contentByArticle = new Map<string, VersionContent>(currentVersions.map((version) => [version.articleId, version]));
   const pendingVersions = new Map<string, VersionContent>();
-  const memberships = new Map<string, { articleId: string; sourceId: string; externalId: string | null }>();
+  const memberships = new Map<string, typeof articleSources.$inferInsert>();
   let damagedTitles = 0;
 
   for (const item of feed.items) {
@@ -198,31 +199,26 @@ async function writeFeed(
     const articleId = match?.id ?? randomUUID();
     const currentContent = contentByArticle.get(articleId);
     const incomingContent = extractVersionContent(item, feed.language);
-    if (match?.sourceId !== sourceId && incomingContent && currentContent
-      && incomingContent.title === currentContent.title && incomingContent.body === currentContent.body
-      && incomingContent.contentKind === currentContent.contentKind) {
-      // Different feeds can omit or disagree on language metadata for the same
-      // text. Reuse its existing version instead of creating duplicate snapshots.
-      incomingContent.language = currentContent.language;
-    }
     // A source may alternate between full-content and description-only feeds.
     // Keep its saved full text when the latest response has only a summary.
     const acceptContent = incomingContent && !(
-      (currentContent?.contentKind === "rss_content" && incomingContent.contentKind === "rss_description")
-      || (match?.sourceId !== sourceId && currentContent?.contentKind === incomingContent.contentKind
-        && currentContent.body.length > incomingContent.body.length)
+      currentContent?.contentKind === "rss_content" && incomingContent.contentKind === "rss_description"
     );
     if (acceptContent) {
       contentByArticle.set(articleId, incomingContent);
       pendingVersions.set(articleId, incomingContent);
     }
+    const snapshot = snapshots.get(articleId);
+    const primary = !match || match.sourceId === sourceId;
+    const snapshotTitle = !acceptContent && currentContent ? currentContent.title : item.title;
+    const snapshotSummary = !acceptContent && currentContent ? snapshot?.summary ?? null : item.summary;
     const article: Article = {
       id: articleId, sourceId: match?.sourceId ?? sourceId, identityKey,
       externalId: match && match.sourceId !== sourceId ? match.externalId : item.externalId || match?.externalId || null,
-      title: incomingContent && !acceptContent && match ? match.title : item.title,
+      title: primary ? snapshotTitle : match.title,
       url: match?.url ?? item.url,
-      summary: item.summary ?? match?.summary ?? null,
-      textContent: contentByArticle.get(articleId)?.body ?? match?.textContent ?? null,
+      summary: primary ? snapshotSummary : match.summary,
+      textContent: primary ? contentByArticle.get(articleId)?.body ?? match?.textContent ?? null : match.textContent,
       currentVersionId: match?.currentVersionId ?? null,
       imageUrl: item.imageUrl ?? match?.imageUrl ?? null,
       author: item.author ?? match?.author ?? null,
@@ -232,7 +228,12 @@ async function writeFeed(
       lastFetchedAt: now,
     };
     pending.set(article.id, article);
-    memberships.set(article.id, { articleId: article.id, sourceId, externalId: item.externalId || null });
+    const membership = {
+      articleId: article.id, sourceId, externalId: item.externalId || null,
+      title: snapshotTitle, summary: snapshotSummary, currentVersionId: snapshot?.currentVersionId ?? null,
+    };
+    memberships.set(article.id, membership);
+    snapshots.set(article.id, membership);
     byKey.set(identityKey, article);
     if (item.externalId) byExternalId.set(item.externalId, article);
   }
@@ -252,7 +253,7 @@ async function writeFeed(
   if (memberships.size) {
     await tx.insert(articleSources).values([...memberships.values()]).onConflictDoUpdate({
       target: [articleSources.articleId, articleSources.sourceId],
-      set: { externalId: sql`coalesce(excluded.external_id, ${articleSources.externalId})` },
+      set: { externalId: sql`coalesce(excluded.external_id, ${articleSources.externalId})`, title: sql`excluded.title`, summary: sql`excluded.summary` },
     });
   }
   if (pendingVersions.size) {
@@ -279,8 +280,11 @@ async function writeFeed(
     await tx.execute(sql`
       UPDATE ${articles} AS a SET current_version_id = v.version_id
       FROM (VALUES ${sql.join(pointers, sql`, `)}) AS v(article_id, version_id)
-      WHERE a.id = v.article_id
+      WHERE a.id = v.article_id AND a.source_id = ${sourceId}::uuid
     `);
+    await tx.execute(sql`UPDATE ${articleSources} AS a SET current_version_id = v.version_id
+      FROM (VALUES ${sql.join(pointers, sql`, `)}) AS v(article_id, version_id)
+      WHERE a.article_id = v.article_id AND a.source_id = ${sourceId}::uuid`);
   }
   await tx.update(sources).set({
     lastFetchedAt: now,
@@ -357,11 +361,11 @@ export async function recordSourceFailure(sourceId: string, error: string): Prom
 }
 
 const libraryArticleColumns = {
-  id: articles.id, sourceId: articles.sourceId, sourceName: sources.name,
+  id: articles.id, sourceId: sources.id, sourceName: sources.name,
   sourceIds: sql<string[]>`(SELECT coalesce(json_agg(m.source_id ORDER BY m.source_id), '[]'::json)
     FROM article_sources m WHERE m.article_id = ${articles.id})`,
-  title: articles.title, url: articles.url,
-  summary: articles.summary,
+  title: sql<string>`coalesce(${articleSources.title}, CASE WHEN ${sources.id} = ${articles.sourceId} THEN ${articles.title} ELSE '文章内容待同步' END)`, url: articles.url,
+  summary: articleSources.summary,
   imageUrl: articles.imageUrl, author: articles.author,
   publishedAt: articles.publishedAt, firstSeenAt: articles.firstSeenAt, channel: sources.channel,
   channelName: channels.name,
@@ -384,13 +388,15 @@ function serializeArticle(article: Omit<LibraryArticle, "publishedAt" | "firstSe
   };
 }
 
-export async function getStoredArticle(id: string): Promise<StoredArticle | null> {
+export async function getStoredArticle(id: string, sourceId?: string): Promise<StoredArticle | null> {
+  if (sourceId) validateId(sourceId);
   validateId(id);
   id = await resolveArticleId(getDb(), id);
   const [row] = await getDb().select({ article: libraryArticleColumns, version: articleVersions })
-    .from(articles).innerJoin(sources, eq(sources.id, articles.sourceId))
+    .from(articles).innerJoin(articleSources, and(eq(articleSources.articleId, articles.id), sourceId ? eq(articleSources.sourceId, sourceId) : eq(articleSources.sourceId, articles.sourceId)))
+    .innerJoin(sources, eq(sources.id, articleSources.sourceId))
     .innerJoin(channels, eq(channels.id, sources.channel))
-    .leftJoin(articleVersions, and(eq(articleVersions.id, articles.currentVersionId), eq(articleVersions.articleId, articles.id)))
+    .leftJoin(articleVersions, and(eq(articleVersions.id, articleSources.currentVersionId), eq(articleVersions.articleId, articles.id)))
     .leftJoin(articleBookmarks, eq(articleBookmarks.articleId, articles.id))
     .leftJoin(articleReads, eq(articleReads.articleId, articles.id))
     .where(eq(articles.id, id));
@@ -435,9 +441,18 @@ export async function listLibrary(options: { channel?: string; source?: string }
       WHERE membership.article_id = ${articles.id} AND membership.source_id = ${source}::uuid
     )`) : undefined,
   );
+  const selectedSource = source ? sql`${source}::uuid` : sql`coalesce((
+    SELECT membership.source_id FROM article_sources membership
+    JOIN sources associated ON associated.id = membership.source_id
+    WHERE membership.article_id = ${articles.id} AND associated.deleted_at IS NULL
+      ${channel ? sql`AND associated.channel = ${channel}` : sql``}
+    ORDER BY (membership.source_id = ${articles.sourceId}) DESC, membership.source_id
+    LIMIT 1
+  ), ${articles.sourceId})`;
   const [articleRows, scopedTotals] = await Promise.all([
     db.select(libraryArticleColumns)
-      .from(articles).innerJoin(sources, eq(articles.sourceId, sources.id))
+      .from(articles).innerJoin(articleSources, and(eq(articleSources.articleId, articles.id), eq(articleSources.sourceId, selectedSource)))
+      .innerJoin(sources, eq(articleSources.sourceId, sources.id))
       .innerJoin(channels, eq(channels.id, sources.channel))
       .leftJoin(articleBookmarks, eq(articleBookmarks.articleId, articles.id))
       .leftJoin(articleReads, eq(articleReads.articleId, articles.id))
@@ -535,6 +550,7 @@ export async function listBookmarks(cursor?: string | null): Promise<BookmarkLis
     }).from(articleBookmarks)
       .innerJoin(articles, eq(articles.id, articleBookmarks.articleId))
       .innerJoin(sources, eq(sources.id, articles.sourceId))
+      .innerJoin(articleSources, and(eq(articleSources.articleId, articles.id), eq(articleSources.sourceId, articles.sourceId)))
       .innerJoin(channels, eq(channels.id, sources.channel))
       .leftJoin(articleReads, eq(articleReads.articleId, articles.id))
       .where(position ? sql`(${articleBookmarks.bookmarkedAt}, ${articleBookmarks.articleId}) < (${position.time}::timestamptz, ${position.id}::uuid)` : undefined)

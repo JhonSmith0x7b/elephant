@@ -173,6 +173,31 @@ describe("article identity across RSS sources in an isolated PostgreSQL schema",
     assert.equal((await articleFromSource(second.sourceId)).id, article.id);
   });
 
+  it("merges each source snapshot as a unit even when the survivor has only a GUID association", async () => {
+    const prefix = `https://example.com/snapshot-merge/${randomUUID()}`;
+    const first = await importFeed(feed([item("merge-en", { url: `${prefix}/en`, title: "English title", content: "An English full article.", summary: "English summary" })]));
+    const second = await importFeed(feed([item("merge-zh", { url: `${prefix}/zh`, title: "中文标题", content: "中文正文", summary: null })]));
+    const firstArticle = await articleFromSource(first.sourceId);
+    const secondArticle = await articleFromSource(second.sourceId);
+    const chineseVersion = (await getStoredArticle(secondArticle.id, second.sourceId))!.version;
+    await getPool().query(`INSERT INTO article_sources (article_id, source_id, external_id, title, summary)
+      VALUES ($1, $2, 'survivor-guid', 'Old incomplete title', 'Old incomplete summary')`, [firstArticle.id, second.sourceId]);
+    await getPool().query("DROP INDEX articles_url_identity_key");
+    await getPool().query("UPDATE articles SET url = $1 WHERE id = ANY($2::uuid[])", [`${prefix}/shared`, [firstArticle.id, secondArticle.id]]);
+    await getPool().query("UPDATE articles SET first_seen_at = '2024-01-01' WHERE id = $1", [firstArticle.id]);
+    await migrate(getPool());
+    const english = (await getStoredArticle(firstArticle.id, first.sourceId))!;
+    const chinese = (await getStoredArticle(firstArticle.id, second.sourceId))!;
+    assert.equal(english.title, "English title");
+    assert.equal(english.version?.body, "An English full article.");
+    assert.equal(chinese.title, "中文标题");
+    assert.equal(chinese.summary, null);
+    assert.deepEqual(chinese.version, chineseVersion);
+    assert.equal((await getStoredArticle(secondArticle.id, second.sourceId))!.id, firstArticle.id);
+    await migrate(getPool());
+    assert.deepEqual(await getStoredArticle(firstArticle.id, second.sourceId), chinese);
+  });
+
   it("merges legacy duplicates without losing sources, content, state, or old article links", async () => {
     const prefix = `https://example.com/legacy/${randomUUID()}`;
     const shared = { title: "Legacy shared article", content: "Saved first paragraph.\n\nSaved second paragraph." };

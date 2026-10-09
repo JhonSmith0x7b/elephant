@@ -60,6 +60,9 @@ export const articles = pgTable(
 );
 
 export const articleSources = pgTable("article_sources", {
+  title: text("title"),
+  summary: text("summary"),
+  currentVersionId: uuid("current_version_id").references((): AnyPgColumn => articleVersions.id, { onDelete: "set null" }),
   articleId: uuid("article_id").notNull().references(() => articles.id, { onDelete: "cascade" }),
   sourceId: uuid("source_id").notNull().references(() => sources.id, { onDelete: "cascade" }),
   externalId: text("external_id"),

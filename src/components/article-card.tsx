@@ -30,7 +30,7 @@ export default function ArticleCard({ article, onBookmarkChange, showBookmarkDat
   showBookmarkDate?: boolean;
   returnTo?: string;
 }) {
-  const href = articleHref(article.id, returnTo);
+  const href = articleHref(article.id, returnTo, article.sourceId);
   const readStatus = useArticleRead(article.id, article.readAt);
   const date = showBookmarkDate && article.bookmarkedAt
     ? article.bookmarkedAt : article.publishedAt || article.firstSeenAt;

@@ -398,20 +398,8 @@ export default function ReaderApp() {
 
   const availableSources = (library?.sources ?? []).filter((source) => channel === "all" || source.channel === channel);
   const channels = [{ id: "all", name: "总览" }, ...(library?.channels ?? [])];
-  const articles = (library?.articles ?? []).filter((article) => {
-    const sourceIds = article.sourceIds ?? [article.sourceId];
-    if (sourceId !== "all") {
-      return availableSources.some(source => source.id === sourceId && sourceIds.includes(source.id));
-    }
-    return channel === "all" || article.channel === channel
-      || availableSources.some(source => sourceIds.includes(source.id));
-  })
-    .map((article) => {
-      const source = availableSources.find((source) => (article.sourceIds ?? [article.sourceId]).includes(source.id)
-        && (sourceId === "all" || source.id === sourceId));
-      return source ? { ...article, sourceId: source.id, sourceName: source.name,
-        channel: source.channel, channelName: source.channelName } : article;
-    });
+  // The API selects both content and attribution for the requested source.
+  const articles = library?.articles ?? [];
   const activeName = channels.find((item) => item.id === channel)?.name;
   const existingSource = preview && library?.sources.find((source) => source.feedUrl === preview.feed.url);
 
