@@ -1,5 +1,7 @@
 "use client";
 
+import { patchCachedArticle } from "@/lib/feed-cache";
+
 import { useCallback, useEffect, useEffectEvent, useId, useRef, useState } from "react";
 import { CheckCheck, Circle, LoaderCircle } from "lucide-react";
 
@@ -50,6 +52,7 @@ export function useArticleRead(articleId: string, initialReadAt: string | null, 
       }
       if (request.current !== controller) return;
       setReadAt(result.readAt);
+      patchCachedArticle(articleId, { readAt: result.readAt });
       window.dispatchEvent(new CustomEvent<ReadChangeDetail>(READ_CHANGE_EVENT, {
         detail: { articleId, readAt: result.readAt },
       }));

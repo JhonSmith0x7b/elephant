@@ -1,5 +1,7 @@
 "use client";
 
+import { patchCachedArticle } from "@/lib/feed-cache";
+
 import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bookmark, LoaderCircle } from "lucide-react";
@@ -60,6 +62,7 @@ export default function BookmarkButton({ articleId, bookmarkedAt, onChange, comp
       if (request.current !== controller) return;
       const detail: BookmarkChangeDetail = { articleId, bookmarkedAt: result.bookmarkedAt };
       setSavedAt(detail.bookmarkedAt);
+      patchCachedArticle(articleId, { bookmarkedAt: detail.bookmarkedAt }, { bookmarkedAt: savedAt });
       onChange?.(detail.bookmarkedAt);
       window.dispatchEvent(new CustomEvent<BookmarkChangeDetail>(BOOKMARK_CHANGE_EVENT, { detail }));
       router.refresh();

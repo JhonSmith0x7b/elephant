@@ -282,3 +282,12 @@ input:disabled, select:disabled { background: var(--soft); }
   .article-reading-links { gap: 10px; }
 }
 @media (pointer: coarse) { .read-status-button { min-height: 36px; } }
+
+.feed-update-area { display: flex; align-items: center; justify-content: flex-end; gap: 18px; flex-wrap: wrap; }
+.feed-update-button { display: inline-flex; align-items: center; gap: 7px; border: 1px solid #dededb; border-radius: 20px; padding: 7px 12px; color: #777; background: #fff; font: inherit; font-size: 12px; cursor: pointer; }
+.feed-update-button:hover { color: #111; border-color: #999; }
+.feed-update-button.has-updates { color: #fff; background: #222; border-color: #222; }
+.feed-update-button.has-updates:hover { background: #444; }
+.feed-update-button:disabled { cursor: default; opacity: .65; }
+.feed-update-button:focus-visible { outline: 2px solid #555; outline-offset: 3px; }
+@media (max-width: 600px) { .feed-update-area { gap: 8px; } .feed-update-area .section-english { display: none; } }
