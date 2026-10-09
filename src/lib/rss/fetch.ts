@@ -34,6 +34,30 @@ export function isPublicAddress(address: string): boolean {
   return false;
 }
 
+function normalizedHost(hostname: string) {
+  return hostname.replace(/^\[|\]$/g, "").replace(/\.$/, "").toLowerCase();
+}
+
+function isLocalFeedHost(hostname: string): boolean {
+  return process.env.NODE_ENV === "development" && !process.env.VERCEL
+    && (process.env.RSS_LOCAL_FEED_HOSTS ?? "").split(",")
+      .some(host => host.trim() !== "" && normalizedHost(host.trim()) === normalizedHost(hostname));
+}
+
+const localAddresses = new BlockList();
+for (const [address, prefix] of [["127.0.0.0", 8], ["10.0.0.0", 8], ["172.16.0.0", 12], ["192.168.0.0", 16]] as const) {
+  localAddresses.addSubnet(address, prefix, "ipv4");
+}
+localAddresses.addAddress("::1", "ipv6");
+localAddresses.addSubnet("fc00::", 7, "ipv6");
+
+function isAllowedAddress(address: string, hostname: string) {
+  if (isPublicAddress(address)) return true;
+  const family = isIP(address);
+  return isLocalFeedHost(hostname) && (family === 4 || family === 6)
+    && localAddresses.check(address, family === 4 ? "ipv4" : "ipv6");
+}
+
 export function validateFeedUrl(input: string): URL {
   if (input.length > 2048) throw new RssError("INVALID_URL", "订阅地址过长，请检查后重试。");
   let url: URL;
@@ -44,10 +68,11 @@ export function validateFeedUrl(input: string): URL {
     throw new RssError("INVALID_URL", "只支持不含账号密码的 HTTP 或 HTTPS 订阅地址。");
   }
   const hostname = url.hostname.replace(/^\[|\]$/g, "").replace(/\.$/, "").toLowerCase();
-  if (!hostname || hostname === "localhost" || /\.(localhost|local|internal)$/.test(hostname)) {
+  if (!hostname || (!isLocalFeedHost(hostname)
+    && (hostname === "localhost" || /\.(localhost|local|internal)$/.test(hostname)))) {
     throw new RssError("UNSAFE_URL", "订阅地址必须是公开的网站，不能使用本地或内网地址。");
   }
-  if (isIP(hostname) && !isPublicAddress(hostname)) {
+  if (isIP(hostname) && !isAllowedAddress(hostname, hostname)) {
     throw new RssError("UNSAFE_URL", "订阅地址必须是公开的网站，不能使用本地或内网地址。");
   }
   url.hash = "";
@@ -73,7 +98,7 @@ export async function resolvePublicTarget(
   }
   if (!addresses.length) throw new RssError("DNS_ERROR", "订阅域名没有可用的网络地址。", 502);
   // Reject mixed public/private DNS answers, rather than silently selecting the public one.
-  if (addresses.some(({ address }) => !isPublicAddress(address))) {
+  if (addresses.some(({ address }) => !isAllowedAddress(address, hostname))) {
     throw new RssError("UNSAFE_URL", "该订阅地址指向本地、内网或保留地址，无法导入。");
   }
   const selected = addresses.find(({ family }) => family === 4) ?? addresses[0];
@@ -199,7 +224,9 @@ export async function fetchFeedXml(input: string): Promise<{ xml: string; url: s
   try {
     let current = input;
     for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
-      const resolver: Resolver | undefined = process.env.RSS_DNS_MODE === "cloudflare"
+      // Explicitly allowed local hosts need system DNS even on Fake-IP setups.
+      const localHost = isLocalFeedHost(validateFeedUrl(current).hostname);
+      const resolver: Resolver | undefined = process.env.RSS_DNS_MODE === "cloudflare" && !localHost
         ? (hostname) => resolveWithCloudflare(hostname, controller.signal)
         : undefined;
       const target = await awaitWithSignal(resolvePublicTarget(current, resolver), controller.signal);

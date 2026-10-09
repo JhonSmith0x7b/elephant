@@ -62,6 +62,8 @@ npm run db:down              # 停止数据库，保留数据卷
 
 `.env` / `.env.local` 被忽略，不能提交或分享。当前本机代理使用 Fake-IP DNS，因此本机使用 `RSS_DNS_MODE=cloudflare`；普通网络与 Vercel 默认 `system`。两种方式均保留内网/保留地址校验。
 
+本机测试自己提供的 RSS 时，可在 `.env.local` 设置 `RSS_LOCAL_FEED_HOSTS=localhost,127.0.0.1,::1` 并重启开发服务。随后可导入 `http://localhost:端口/feed` 等地址；局域网服务可追加确切的 IP 或域名（不写协议和端口）。仅开发环境生效，允许名单内的主机使用系统 DNS，并可访问回环、私有局域网地址；生产环境、Vercel 及未列入名单的地址继续执行公开地址校验，重定向也逐次校验。
+
 ## Vercel 部署与定时触发
 
 Vercel 构建使用 Next.js Route Handlers；本机常驻 worker 不会在 Vercel 部署中启动，由 Cron 请求 `/api/cron/sync` 唤醒相同的同步逻辑。
