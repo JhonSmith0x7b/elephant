@@ -1,4 +1,5 @@
 import ArticleLinks from "./article-links";
+import ArticleCover from "./article-cover";
 import "./article-links.css";
 import Link from "next/link";
 import BrandWordmark from "@/components/brand-wordmark";
@@ -62,6 +63,8 @@ export default function StoredArticleView({ article, returnTo = "/" }: {
             <div className="stored-version-info"><span className="stored-version-label"><BookOpen size={14} />{version ? "已保存内容" : "文章收录记录"}</span>{savedAt && <span className="stored-version-date">保存于 <time dateTime={savedAt}>{formatDate(savedAt, true)}</time></span>}</div>
             <div className="stored-reading-actions"><ArticleReadStatus key={article.id} articleId={article.id} readAt={article.readAt} /><BookmarkButton articleId={article.id} bookmarkedAt={article.bookmarkedAt} compact />{article.url && <a className="stored-original-link" href={article.url} target="_blank" rel="noopener noreferrer" aria-label="在新窗口打开原文">打开原站<ArrowUpRight size={14} /></a>}</div>
           </div>
+
+          {article.imageUrl && <ArticleCover key={article.imageUrl} url={article.imageUrl} title={title} />}
 
           {version?.contentKind === "rss_description" && <p className="stored-content-note" lang="zh-CN">内容来自 RSS 摘要，已保存来源提供的文本，可能不是全文。</p>}
 

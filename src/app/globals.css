@@ -204,6 +204,8 @@ input:disabled, select:disabled { background: var(--soft); }
 .stored-version-date { font-size: 11px; color: #777; }
 .stored-original-link { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; min-height: 28px; font-size: 12px; color: #696969; }
 .stored-content-note { font-size: 13px; line-height: 1.8; color: #666; background: var(--soft); border-left: 2px solid #b0b0b0; padding: 14px 17px; margin-top: 28px; }
+.stored-article-cover { margin: 30px 0 0; }
+.stored-article-cover img { display: block; width: auto; height: auto; max-width: 100%; max-height: min(420px, 55svh); margin-inline: auto; object-fit: contain; }
 .stored-article-body { font-family: "Songti SC", "STSong", Georgia, serif; font-size: 19px; line-height: 1.95; padding-top: 33px; color: #2d2d2d; overflow-wrap: anywhere; }
 .stored-article-body p { margin: 0 0 1.45em; white-space: pre-line; }
 .stored-article-body:lang(en) { line-height: 1.85; }
