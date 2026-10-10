@@ -1,5 +1,6 @@
 import { ThemeSelect } from "./theme-provider";
-import ArticleLinks from "./article-links";
+import ArticleBody from "./article-body";
+import { articleTextParts, articleLinkUrl } from "@/lib/article-links";
 import ArticleCover from "./article-cover";
 import "./article-links.css";
 import Link from "next/link";
@@ -39,6 +40,8 @@ export default function StoredArticleView({ article, returnTo = "/" }: {
   const language = languageTag(version?.language);
   const paragraphs = version?.body.trim().split(/\r?\n\s*\r?\n/).filter(Boolean) ?? [];
   const savedAt = version?.storedAt;
+  const coverInBody = article.imageUrl && articleTextParts(version?.body || "", article.url)
+    .some(part => part.image && part.href === articleLinkUrl(article.imageUrl!));
 
   return (
     <div className="reading-room stored-reading-room">
@@ -65,11 +68,11 @@ export default function StoredArticleView({ article, returnTo = "/" }: {
             <div className="stored-reading-actions"><ArticleReadStatus key={article.id} articleId={article.id} readAt={article.readAt} /><BookmarkButton articleId={article.id} bookmarkedAt={article.bookmarkedAt} compact />{article.url && <a className="stored-original-link" href={article.url} target="_blank" rel="noopener noreferrer" aria-label="在新窗口打开原文">打开原站<ArrowUpRight size={14} /></a>}</div>
           </div>
 
-          {article.imageUrl && <ArticleCover key={article.imageUrl} url={article.imageUrl} title={title} />}
+          {article.imageUrl && !coverInBody && <ArticleCover key={article.imageUrl} url={article.imageUrl} title={title} />}
 
           {version?.contentKind === "rss_description" && <p className="stored-content-note" lang="zh-CN">内容来自 RSS 摘要，已保存来源提供的文本，可能不是全文。</p>}
 
-          {paragraphs.length > 0 ? <ArticleSelection key={version?.id} title={title}>{paragraphs.map((paragraph, index) => <p key={index}><ArticleLinks text={paragraph} base={article.url} /></p>)}</ArticleSelection> : <section className="stored-content-empty" lang="zh-CN" aria-labelledby="missing-content-heading"><BookOpen size={27} strokeWidth={1.3} /><h2 id="missing-content-heading">尚未获得可阅读的内容</h2><p>这篇文章目前没有保存的正文或摘要。{article.url ? "可以打开原文阅读，或返回信息流刷新来源。" : "来源也未提供原文链接，可以返回信息流刷新来源。"}</p><Link className="button secondary" href={returnTo}>返回信息流<ArrowLeft size={14} /></Link></section>}
+          {paragraphs.length > 0 ? <ArticleSelection key={version?.id} title={title}><ArticleBody body={version!.body} base={article.url} /></ArticleSelection> : <section className="stored-content-empty" lang="zh-CN" aria-labelledby="missing-content-heading"><BookOpen size={27} strokeWidth={1.3} /><h2 id="missing-content-heading">尚未获得可阅读的内容</h2><p>这篇文章目前没有保存的正文或摘要。{article.url ? "可以打开原文阅读，或返回信息流刷新来源。" : "来源也未提供原文链接，可以返回信息流刷新来源。"}</p><Link className="button secondary" href={returnTo}>返回信息流<ArrowLeft size={14} /></Link></section>}
 
           {paragraphs.length > 0 && <footer className="stored-article-end" lang="zh-CN"><span className="stored-end-mark" aria-hidden="true" /><p>内容来自 {article.sourceName}。此处展示采集时保存的内容。</p><Link className="text-button" href={returnTo}><ArrowLeft size={14} />回到信息流，继续阅读</Link></footer>}
         </article>

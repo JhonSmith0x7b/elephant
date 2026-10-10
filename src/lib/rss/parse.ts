@@ -69,6 +69,11 @@ function readHtml(value: unknown, base: string): { text: string; body: string; i
   const parts: string[] = [];
   const bodyParts: string[] = [];
   let anchor: { start: number; href: string } | null = null;
+  const flushAnchor = () => {
+    if (!anchor) return;
+    const label = bodyParts.splice(anchor.start).join("");
+    bodyParts.push(storedMarkdownLink(label, anchor.href));
+  };
   const append = (text: string) => { parts.push(text); bodyParts.push(text); };
   let ignoredDepth = 0;
   let imageUrl: string | null = null;
@@ -83,16 +88,25 @@ function readHtml(value: unknown, base: string): { text: string; body: string; i
         const href = articleLinkUrl(attributes.href || "", base);
         if (href) anchor = { start: bodyParts.length, href };
       }
-      if (name === "img" && !imageUrl) {
-        imageUrl = safeHttpUrl(attributes["data-src"] || attributes.src, base);
+      if (name === "img") {
+        const src = [attributes["data-src"], attributes["data-original"], attributes["data-lazy-src"], attributes.src]
+          .map((value) => safeHttpUrl(value, base)).find(Boolean);
+        if (src) {
+          imageUrl ??= src;
+          // Keep images as separate blocks, including images inside linked figures.
+          // Text on either side retains its link without wrapping image Markdown.
+          flushAnchor();
+          bodyParts.push(`\n\n!${storedMarkdownLink(attributes.alt?.trim() || "图片", src)}\n\n`);
+          parts.push("\n");
+          if (anchor) anchor.start = bodyParts.length;
+        }
       }
     },
     ontext(text) { if (!ignoredDepth) append(text); },
     onclosetag(name) {
       if (ignoredTags.has(name)) ignoredDepth = Math.max(0, ignoredDepth - 1);
       if (!ignoredDepth && name === "a" && anchor) {
-        const label = bodyParts.splice(anchor.start).join("");
-        bodyParts.push(storedMarkdownLink(label, anchor.href));
+        flushAnchor();
         anchor = null;
       }
       if (!ignoredDepth && blockTags.has(name)) append("\n");
@@ -186,7 +200,7 @@ function parseItem(item: unknown, feed: unknown, feedUrl: string, atom: boolean)
   const summary = readHtml(summaryValue, base);
   const publishedAt = date(field(item, atom ? "published" : "pubDate") ?? (!atom ? field(item, "date") : undefined));
   const normalizedUrl = url ? normalizeArticleUrl(url) : null;
-  const hash = createHash("sha256").update(JSON.stringify([title, publishedAt, summary.text, content.text])).digest("hex");
+  const hash = createHash("sha256").update(JSON.stringify([title, publishedAt, summary.text || summary.body, content.text || content.body])).digest("hex");
   return {
     externalId: guid || normalizedUrl || hash,
     idKind: guid ? "guid" : normalizedUrl ? "url" : "hash",
@@ -197,7 +211,7 @@ function parseItem(item: unknown, feed: unknown, feedUrl: string, atom: boolean)
     updatedAt: date(field(item, "updated") ?? field(item, "modified")),
     summary: (summary.text || content.text).slice(0, 1200) || null,
     content: content.body || summary.body || null,
-    contentKind: content.text ? "rss_content" : "rss_description",
+    contentKind: content.body ? "rss_content" : "rss_description",
     imageUrl: mediaImage(item, base) ?? content.imageUrl ?? summary.imageUrl,
   };
 }

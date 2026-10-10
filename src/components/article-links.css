@@ -7,3 +7,7 @@
 }
 .stored-body-link:hover { text-decoration-color: currentColor; }
 .stored-body-link:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+
+.stored-inline-image { margin: 1.5em 0; }
+.stored-inline-image img { display: block; width: auto; height: auto; max-width: 100%; max-height: 85svh; object-fit: contain; margin-inline: auto; }
+.stored-image-unavailable { display: block; padding: 18px; border: 1px solid var(--line); color: var(--muted); font-family: sans-serif; font-size: 13px; text-align: center; }
