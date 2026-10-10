@@ -1,5 +1,6 @@
 "use client";
 
+import { ThemeSelect } from "./theme-provider";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, Bookmark, LoaderCircle, RefreshCw } from "lucide-react";
@@ -127,7 +128,7 @@ export default function BookmarksApp() {
   return <main className="reading-room bookmarks-room">
     <header className="stored-masthead bookmarks-masthead">
       <Link className="brand" href="/" prefetch={false} aria-label="大象，返回信息流"><BrandWordmark /></Link>
-      <Link className="return-to-feed" href="/" prefetch={false}><ArrowLeft size={14} aria-hidden="true" />返回信息流</Link>
+      <div className="stored-masthead-actions"><ThemeSelect /><Link className="return-to-feed" href="/" prefetch={false}><ArrowLeft size={14} aria-hidden="true" />返回信息流</Link></div>
     </header>
 
     <section aria-labelledby="bookmarks-heading">

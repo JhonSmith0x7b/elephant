@@ -1,7 +1,7 @@
 .compact-feed-bar {
   position: fixed; inset: 0 0 auto; z-index: 40;
   background: var(--paper); border-bottom: 1px solid var(--line);
-  box-shadow: 0 2px 10px #00000004;
+  box-shadow: 0 2px 10px var(--bar-shadow);
 }
 .compact-feed-inner {
   display: flex; align-items: center; gap: 30px; height: 48px;
@@ -25,10 +25,10 @@
 .back-to-top {
   position: fixed; right: 24px; bottom: max(24px, env(safe-area-inset-bottom)); z-index: 40;
   width: 42px; height: 42px; display: grid; place-items: center;
-  border: 1px solid #dededb; border-radius: 50%; color: #666; background: var(--paper);
-  box-shadow: 0 3px 12px #00000008;
+  border: 1px solid var(--control-border); border-radius: 50%; color: var(--secondary-ink); background: var(--paper);
+  box-shadow: 0 3px 12px var(--floating-shadow);
 }
-.back-to-top:hover { color: var(--ink); border-color: #999; }
+.back-to-top:hover { color: var(--ink); border-color: var(--faint-ink); }
 .back-to-top:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 @media (max-width: 1050px) { .compact-feed-inner { padding-inline: 30px; } }
 @media (max-width: 540px) {

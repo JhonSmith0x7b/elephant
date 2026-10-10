@@ -1,3 +1,4 @@
+import { ThemeSelect } from "./theme-provider";
 import ArticleLinks from "./article-links";
 import ArticleCover from "./article-cover";
 import "./article-links.css";
@@ -45,7 +46,7 @@ export default function StoredArticleView({ article, returnTo = "/" }: {
         <Link className="brand" href={returnTo} aria-label="大象，返回信息流">
           <BrandWordmark />
         </Link>
-        <div className="stored-masthead-actions"><Link className="text-button bookmarks-nav-link" href="/bookmarks" prefetch={false}><Bookmark size={14} />我的收藏</Link><Link className="text-button return-to-feed" href={returnTo}><ArrowLeft size={15} />返回信息流</Link></div>
+        <div className="stored-masthead-actions"><ThemeSelect /><Link className="text-button bookmarks-nav-link" href="/bookmarks" prefetch={false}><Bookmark size={14} />我的收藏</Link><Link className="text-button return-to-feed" href={returnTo}><ArrowLeft size={15} />返回信息流</Link></div>
       </header>
 
       <main className="stored-article" lang={language}>

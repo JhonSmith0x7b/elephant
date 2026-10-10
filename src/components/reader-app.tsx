@@ -1,5 +1,6 @@
 "use client";
 
+import { ThemeSelect } from "./theme-provider";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { feedHref, libraryHref, readFeedLocation, type FeedLocation } from "@/lib/feed-location";
@@ -412,7 +413,7 @@ export default function ReaderApp() {
         channels={channels} channel={channel}
         onSelect={id => navigateFeed({ channel: id, source: "all" })} />
       <header ref={mastheadRef} className="masthead">
-        <div className="masthead-top"><span>阅读，把世界慢慢展开。</span><span>私人信息流</span></div>
+        <div className="masthead-top"><span>阅读，把世界慢慢展开。</span><div className="masthead-top-tools"><span>私人信息流</span><ThemeSelect /></div></div>
         <div className="masthead-main">
           <button className="brand" onClick={() => navigateFeed({ channel: "all", source: "all" })} aria-label="大象，返回总览">
             <BrandWordmark />
