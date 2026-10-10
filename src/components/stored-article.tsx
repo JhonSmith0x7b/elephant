@@ -74,7 +74,7 @@ export default function StoredArticleView({ article, returnTo = "/" }: {
 
           {paragraphs.length > 0 ? <ArticleSelection key={version?.id} title={title}><ArticleBody body={version!.body} base={article.url} /></ArticleSelection> : <section className="stored-content-empty" lang="zh-CN" aria-labelledby="missing-content-heading"><BookOpen size={27} strokeWidth={1.3} /><h2 id="missing-content-heading">尚未获得可阅读的内容</h2><p>这篇文章目前没有保存的正文或摘要。{article.url ? "可以打开原文阅读，或返回信息流刷新来源。" : "来源也未提供原文链接，可以返回信息流刷新来源。"}</p><Link className="button secondary" href={returnTo}>返回信息流<ArrowLeft size={14} /></Link></section>}
 
-          {paragraphs.length > 0 && <footer className="stored-article-end" lang="zh-CN"><span className="stored-end-mark" aria-hidden="true" /><p>内容来自 {article.sourceName}。此处展示采集时保存的内容。</p><Link className="text-button" href={returnTo}><ArrowLeft size={14} />回到信息流，继续阅读</Link></footer>}
+          {paragraphs.length > 0 && <footer className="stored-article-end" lang="zh-CN"><span className="stored-end-mark" aria-hidden="true" /><p>内容来自 {article.sourceName}。此处展示采集时保存的内容。</p><div className="stored-end-actions"><BookmarkButton articleId={article.id} bookmarkedAt={article.bookmarkedAt} /><Link className="text-button" href={returnTo}><ArrowLeft size={14} />回到信息流，继续阅读</Link></div></footer>}
         </article>
       </main>
 

@@ -39,6 +39,17 @@ export default function BookmarkButton({ articleId, bookmarkedAt, onChange, comp
     request.current = null;
   }, [articleId]);
 
+  useEffect(() => {
+    const syncBookmark = (event: Event) => {
+      const detail = (event as CustomEvent<BookmarkChangeDetail>).detail;
+      if (detail.articleId !== articleId) return;
+      setSavedAt(detail.bookmarkedAt);
+      setError("");
+    };
+    window.addEventListener(BOOKMARK_CHANGE_EVENT, syncBookmark);
+    return () => window.removeEventListener(BOOKMARK_CHANGE_EVENT, syncBookmark);
+  }, [articleId]);
+
   async function toggleBookmark() {
     if (request.current) return;
     const controller = new AbortController();
