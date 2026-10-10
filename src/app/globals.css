@@ -355,3 +355,6 @@ input:disabled, select:disabled { background: var(--soft); }
 @media (pointer: coarse) { .theme-select select { min-height: 42px; } }
 
 .feed-load-more { margin-inline: auto; min-height: 40px; justify-content: center; }
+
+.stored-end-actions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 16px 28px; margin-top: 24px; }
+.stored-end-actions .text-button { margin-top: 0; }
