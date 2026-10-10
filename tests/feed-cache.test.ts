@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import type { LibraryArticle, LibraryData } from "../src/lib/contracts";
 import {
-  applyPendingLibrary, clearLibraryCache, getArticleStateRevision, getCachedLibrary,
+  appendLibraryPage, applyPendingLibrary, clearLibraryCache, getArticleStateRevision, getCachedLibrary,
   invalidateOtherLibraries, patchCachedArticle, receiveLibrary, subscribeLibraryCache,
 } from "../src/lib/feed-cache";
 
@@ -140,4 +140,60 @@ test("a fresh server state supersedes an older local bookmark mutation baseline"
   receiveLibrary("all", library([article("a")]));
   patchCachedArticle("a", { bookmarkedAt: "saved-again" }, { bookmarkedAt: null });
   assert.equal(getCachedLibrary("all")?.data.counts.bookmarks, 1);
+});
+
+function page(ids: string[], nextCursor: string | null, articleCount = 6): LibraryData {
+  return { ...library(ids.map(id => article(id))), nextCursor, articleCount };
+}
+
+test("pagination appends without duplicates and unchanged polls retain the loaded tail", () => {
+  receiveLibrary("all", page(["a", "b"], "cursor-b"));
+  assert.equal(appendLibraryPage("all", page(["b", "c", "c", "d"], "cursor-d"), "cursor-b"), true);
+  receiveLibrary("all", page(["a", "b"], "cursor-b"));
+  assert.deepEqual(getCachedLibrary("all")?.data.articles.map(a => a.id), ["a", "b", "c", "d"]);
+  assert.equal(getCachedLibrary("all")?.data.nextCursor, "cursor-d");
+  assert.equal(getCachedLibrary("all")?.pending, null);
+  appendLibraryPage("all", page(["e", "f"], null), "cursor-d");
+  receiveLibrary("all", page(["a", "b"], "cursor-b"));
+  assert.equal(getCachedLibrary("all")?.data.nextCursor, null);
+  assert.equal(getCachedLibrary("all")?.data.articles.length, 6);
+});
+
+test("new content waits while pagination continues, then acknowledgement resets to its first page", () => {
+  receiveLibrary("all", page(["a", "b"], "cursor-b"));
+  appendLibraryPage("all", page(["c", "d"], "cursor-d"), "cursor-b");
+  receiveLibrary("all", page(["new", "a"], "cursor-a", 7));
+  assert.equal(getCachedLibrary("all")?.newCount, 1);
+  assert.equal(getCachedLibrary("all")?.data.nextCursor, "cursor-d");
+  appendLibraryPage("all", page(["e", "f"], null), "cursor-d");
+  assert.equal(getCachedLibrary("all")?.pending?.articles[0].id, "new");
+  applyPendingLibrary("all");
+  assert.deepEqual(getCachedLibrary("all")?.data.articles.map(a => a.id), ["new", "a"]);
+  assert.equal(getCachedLibrary("all")?.data.nextCursor, "cursor-a");
+});
+
+test("late pages cannot append after cursor advance, forced refresh, invalidation or pending reset", () => {
+  receiveLibrary("all", page(["a", "b"], "cursor-b"));
+  const revision = getArticleStateRevision();
+  appendLibraryPage("all", page(["c", "d"], "cursor-d"), "cursor-b", revision);
+  assert.equal(appendLibraryPage("all", page(["c", "d"], null), "cursor-b", revision), false);
+  receiveLibrary("all", page(["a", "b"], "cursor-b"), true);
+  assert.equal(appendLibraryPage("all", page(["c", "d"], null), "cursor-b", revision), false);
+  const nextRevision = getArticleStateRevision();
+  receiveLibrary("all", page(["new", "b"], "cursor-b", 7));
+  applyPendingLibrary("all");
+  assert.equal(appendLibraryPage("all", page(["c", "d"], null), "cursor-b", nextRevision), false);
+  invalidateOtherLibraries("all");
+  assert.equal(appendLibraryPage("all", page(["c", "d"], null), "cursor-b"), false);
+});
+
+test("pagination responses preserve read and bookmark mutations made after request start", () => {
+  receiveLibrary("all", page(["a", "b"], "cursor-b"));
+  const revision = getArticleStateRevision();
+  patchCachedArticle("c", { readAt: "read", bookmarkedAt: "saved" }, { bookmarkedAt: null });
+  appendLibraryPage("all", page(["c", "d"], "cursor-d"), "cursor-b", revision);
+  const cached = getCachedLibrary("all")!;
+  assert.equal(cached.data.articles[2].readAt, "read");
+  assert.equal(cached.data.articles[2].bookmarkedAt, "saved");
+  assert.equal(cached.data.counts.bookmarks, 1);
 });

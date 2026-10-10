@@ -353,3 +353,5 @@ input:disabled, select:disabled { background: var(--soft); }
   .theme-select select { max-width: 108px; font-size: 16px; }
 }
 @media (pointer: coarse) { .theme-select select { min-height: 42px; } }
+
+.feed-load-more { margin-inline: auto; min-height: 40px; justify-content: center; }

@@ -10,7 +10,7 @@ import FeedNavigation from "@/components/feed-navigation";
 import ChannelManager from "@/components/channel-manager";
 import SyncSettings from "@/components/sync-settings";
 import {
-  applyPendingLibrary, clearLibraryCache, getArticleStateRevision, getCachedLibrary,
+  appendLibraryPage, applyPendingLibrary, clearLibraryCache, getArticleStateRevision, getCachedLibrary,
   invalidateOtherLibraries, receiveLibrary, subscribeLibraryCache,
 } from "@/lib/feed-cache";
 import "./channel-manager.css";
@@ -43,6 +43,9 @@ import type {
   ChannelRecord,
   SourceRecord,
 } from "@/lib/contracts";
+// Only keep return positions for cached feeds in this browser session.
+const feedReturnPositions = new Map<string, number>();
+
 const presets = [
   { name: "Lit Hub", url: "https://lithub.com/feed/", note: "文学新闻、访谈与观点" },
   { name: "Book Marks", url: "https://bookmarks.reviews/feed/", note: "新书书评、榜单与阅读" },
@@ -99,6 +102,16 @@ export default function ReaderApp() {
     () => getCachedLibrary(requestedLibrary), () => null);
   const library = snapshot?.data ?? lastLibrary;
   const libraryRequest = useRef(0);
+  const moreRequest = useRef<AbortController | null>(null);
+  const moreSentinel = useRef<HTMLDivElement>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState("");
+  const resetMore = useCallback(() => {
+    moreRequest.current?.abort();
+    moreRequest.current = null;
+    setLoadingMore(false);
+    setMoreError("");
+  }, []);
   const feedReady = snapshot !== null;
   const channel = library && !library.channels.some(item => item.id === requestedLocation.channel)
     ? "all" : requestedLocation.channel;
@@ -147,6 +160,7 @@ export default function ReaderApp() {
   const loadLibrary = useCallback(async (signal?: AbortSignal, force = false) => {
     // Read the current URL even after an import or source change has navigated.
     const url = libraryHref(readFeedLocation(new URLSearchParams(window.location.search)));
+    if (force) resetMore();
     const requestId = ++libraryRequest.current;
     const stateRevision = getArticleStateRevision();
     const requestSignal = signal
@@ -169,7 +183,7 @@ export default function ReaderApp() {
     } finally {
       if (isCurrent()) setLoading(false);
     }
-  }, []);
+  }, [resetMore]);
 
   const onSourcesSynced = useCallback(() => {
     void loadLibrary().catch(() => undefined);
@@ -180,6 +194,59 @@ export default function ReaderApp() {
     loadLibrary(controller.signal).catch(() => undefined);
     return () => controller.abort();
   }, [loadLibrary, requestedLibrary]);
+
+  const loadMore = useCallback(async () => {
+    const previous = getCachedLibrary(requestedLibrary);
+    const cursor = previous?.data.nextCursor;
+    if (!cursor || moreRequest.current) return;
+    const controller = new AbortController();
+    moreRequest.current = controller;
+    const revision = getArticleStateRevision();
+    setLoadingMore(true);
+    setMoreError("");
+    try {
+      const url = new URL(requestedLibrary, window.location.origin);
+      url.searchParams.set("cursor", cursor);
+      const page = await request<Library>(`${url.pathname}${url.search}`, {
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)]),
+      });
+      if (!controller.signal.aborted) appendLibraryPage(requestedLibrary, page, cursor, revision);
+    } catch (error) {
+      if (!controller.signal.aborted) setMoreError(errorMessage(error));
+    } finally {
+      if (moreRequest.current === controller) {
+        moreRequest.current = null;
+        setLoadingMore(false);
+      }
+    }
+  }, [requestedLibrary]);
+
+  useEffect(() => {
+    resetMore();
+    return () => { moreRequest.current?.abort(); moreRequest.current = null; };
+  }, [requestedLibrary, resetMore]);
+
+  useEffect(() => {
+    const sentinel = moreSentinel.current;
+    if (!sentinel || !feedReady || !snapshot?.data.nextCursor || loadingMore || moreError) return;
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) void loadMore();
+    }, { rootMargin: "800px 0px" });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [feedReady, snapshot?.data.nextCursor, loadingMore, moreError, loadMore]);
+
+  useEffect(() => {
+    if (!feedReady) return;
+    const key = feedHref(readFeedLocation(new URLSearchParams(window.location.search)));
+    const position = feedReturnPositions.get(key);
+    if (position === undefined) return;
+    const frame = requestAnimationFrame(() => {
+      window.scrollTo({ top: position, behavior: "instant" });
+      feedReturnPositions.delete(key);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [feedReady, requestedLibrary, view]);
 
   useEffect(() => {
     const refreshOnReturn = () => {
@@ -444,7 +511,7 @@ export default function ReaderApp() {
             {feedReady && <button className={`feed-update-button${snapshot?.pending ? " has-updates" : ""}`}
               disabled={loading && !snapshot?.pending} aria-busy={loading && !snapshot?.pending}
               onClick={() => {
-                if (snapshot?.pending) { applyPendingLibrary(requestedLibrary); setLibraryError(""); }
+                if (snapshot?.pending) { resetMore(); applyPendingLibrary(requestedLibrary); setLibraryError(""); }
                 else void loadLibrary().catch(() => undefined);
               }}>
               <RefreshCw size={13} className={loading && !snapshot?.pending ? "spinning" : undefined} aria-hidden="true" />
@@ -497,10 +564,25 @@ export default function ReaderApp() {
             </select><ChevronDown size={13} /></div><span className="article-count">{library.articleCount > articles.length ? `${articles.length} / ${library.articleCount}` : articles.length} 篇</span></div>
             <div className="view-switch" aria-label="信息流布局"><button className="text-button" aria-label="卡片" aria-pressed={view === "cards"} onClick={() => navigateFeed({ view: "cards" }, true)}><LayoutGrid size={14} /><span>卡片</span></button><button className="text-button" aria-label="列表" aria-pressed={view === "list"} onClick={() => navigateFeed({ view: "list" }, true)}><List size={16} /><span>列表</span></button></div>
           </div>
-          {articles.length ? <div className={`article-feed ${view}`}>
+          {articles.length ? <div className={`article-feed ${view}`} onClickCapture={event => {
+            const link = (event.target as HTMLElement).closest("a");
+            if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey
+              && link?.getAttribute("href")?.startsWith("/articles/")) {
+              feedReturnPositions.set(returnTo, window.scrollY);
+              if (feedReturnPositions.size > 20) feedReturnPositions.delete(feedReturnPositions.keys().next().value!);
+            }
+          }}>
             {articles.map((article) => <ArticleCard key={article.id} article={article} returnTo={returnTo} />)}
           </div> : <div className="empty-filter"><BookOpen size={28} strokeWidth={1.3} /><h2>这里还没有文章</h2><p>{availableSources.length ? "可以在来源管理中刷新订阅，或查看其他来源。" : `为${activeName}板块导入一个来源，开始这部分的阅读。`}</p><button className="button secondary" onClick={() => openImport()}><Plus size={14} />导入 RSS</button></div>}
-          <p className="feed-end">— {library.articleCount > library.articles.length ? `当前筛选共 ${library.articleCount} 篇，展示最近 ${library.articles.length} 篇` : "当前收录到此，随时刷新来源"} —</p>
+          <div ref={moreSentinel} className="feed-end" aria-live="polite">
+            {library.nextCursor ? <>
+              {moreError && <p role="alert">{moreError}</p>}
+              <button className="text-button feed-load-more" disabled={loadingMore} onClick={() => void loadMore()}>
+                {loadingMore && <LoaderCircle size={14} className="spinning" aria-hidden="true" />}
+                {loadingMore ? "正在加载更多…" : moreError ? "点击重试" : "加载更多"}
+              </button>
+            </> : "— 已经到底了 —"}
+          </div>
         </> : !loading && <div className="empty-filter"><BookOpen size={28} strokeWidth={1.3} /><h2>暂时没能打开信息流</h2><p>请稍后重新加载，已有内容不会因此丢失。</p></div>}
       </main>
 

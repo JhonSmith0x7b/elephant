@@ -48,6 +48,9 @@ describe("library filtering before the feed limit in an isolated PostgreSQL sche
     await db.insert(articles).values(rows.map((row) => ({
       ...row, identityKey: `guid:${row.id}`, title: `Article ${row.id}`,
     })));
+    // Exercise tied dates and fallback dates with precision beyond JS Dates.
+    await getPool().query(`UPDATE articles SET published_at = '2026-10-08T00:00:00.000123Z' WHERE source_id = $1`, [worldSource]);
+    await getPool().query(`UPDATE articles SET published_at = NULL, first_seen_at = '2026-10-08T00:00:00.000124Z' WHERE id = ANY($1::uuid[])`, [worldIds.slice(0, 40)]);
     await db.insert(articleSources).values([
       ...rows.map((row) => ({ articleId: row.id, sourceId: row.sourceId })),
       { articleId: worldIds[0], sourceId: literatureSource },
@@ -66,7 +69,7 @@ describe("library filtering before the feed limit in an isolated PostgreSQL sche
 
   it("returns older literature even when more than 100 newer articles occupy the global feed", async () => {
     const global = await listLibrary();
-    assert.equal(global.articles.length, 100);
+    assert.equal(global.articles.length, 30);
     assert.ok(global.articles.every((article) => article.channel === "world"));
     assert.equal(global.articleCount, 147);
 
@@ -80,7 +83,7 @@ describe("library filtering before the feed limit in an isolated PostgreSQL sche
 
     const world = await listLibrary({ channel: "world" });
     assert.equal(world.articleCount, 125);
-    assert.equal(world.articles.length, 100);
+    assert.equal(world.articles.length, 30);
   });
 
   it("applies source filtering before limiting and counts shared articles once", async () => {
@@ -113,10 +116,35 @@ describe("library filtering before the feed limit in an isolated PostgreSQL sche
     for (const channel of ["all", "unknown-channel"]) {
       const result = await listLibrary({ channel });
       assert.equal(result.articleCount, 147);
-      assert.equal(result.articles.length, 100);
+      assert.equal(result.articles.length, 30);
       const source = await listLibrary({ channel, source: literatureSource });
       assert.equal(source.articleCount, 21);
       assert.equal(source.articles.length, 21);
+    }
+  });
+
+  it("paginates tied and microsecond dates without duplicates or gaps, preserving scoped totals", async () => {
+    const expected = await getPool().query<{ id: string }>(`SELECT id FROM articles WHERE source_id = $1 ORDER BY coalesce(published_at, first_seen_at) DESC, id DESC`, [worldSource]);
+    const collected: string[] = [];
+    let cursor: string | null | undefined;
+    do {
+      const page = await listLibrary({ channel: "world", source: worldSource, cursor });
+      assert.equal(page.articleCount, 125);
+      assert.equal(page.counts.articles, 147);
+      assert.ok(page.articles.length <= 30);
+      collected.push(...page.articles.map((article) => article.id));
+      cursor = page.nextCursor;
+      assert.ok(collected.length <= 125);
+    } while (cursor);
+    assert.deepEqual(collected, expected.rows.map((row) => row.id));
+    assert.equal(new Set(collected).size, 125);
+    assert.equal((await listLibrary({ channel: "literature" })).nextCursor, null);
+  });
+
+  it("rejects malformed cursors before querying", async () => {
+    const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+    for (const cursor of ["", "bad!", "a".repeat(257), encode({}), encode(["2026-02-30T00:00:00.000000Z", worldIds[0]]), encode(["2026-10-08T00:00:00.000123Z", "not-a-uuid"])]) {
+      await assert.rejects(() => listLibrary({ cursor }), { code: "INVALID_CURSOR", status: 400 });
     }
   });
 
@@ -131,5 +159,13 @@ describe("library filtering before the feed limit in an isolated PostgreSQL sche
     assert.equal(result.articleCount, 1);
     assert.deepEqual(result.articles.map((article) => article.id), [worldIds[0]]);
     assert.equal(result.counts.articles, 147);
+    const first = await listLibrary({ channel: "world", source: worldSource });
+    const second = await GET(new Request(`http://127.0.0.1:3000/api/library?channel=world&source=${worldSource}&cursor=${first.nextCursor}`));
+    const next = await second.json() as LibraryData;
+    assert.equal(next.articles.length, 30);
+    assert.ok(next.articles.every((article) => !first.articles.some((previous) => previous.id === article.id)));
+    assert.equal(next.articleCount, 125);
+    const invalid = await GET(new Request("http://127.0.0.1:3000/api/library?cursor=bad!"));
+    assert.equal(invalid.status, 400);
   });
 });
