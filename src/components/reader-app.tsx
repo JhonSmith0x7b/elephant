@@ -106,10 +106,8 @@ export default function ReaderApp() {
   const previousLibrary = useRef(requestedLibrary);
   const autoApplyLibrary = useRef<string | null>(null);
   const moreRequest = useRef<AbortController | null>(null);
-  const restoreSignal = useRef<AbortSignal | null>(null);
   const moreSentinel = useRef<HTMLDivElement>(null);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [restoringScope, setRestoringScope] = useState<string | null>(null);
   const [moreError, setMoreError] = useState("");
   const resetMore = useCallback(() => {
     moreRequest.current?.abort();
@@ -217,7 +215,7 @@ export default function ReaderApp() {
   const loadMore = useCallback(async () => {
     const previous = getCachedLibrary(requestedLibrary);
     const cursor = previous?.data.nextCursor;
-    if (!cursor || moreRequest.current || (restoreSignal.current && !restoreSignal.current.aborted)) return;
+    if (!cursor || moreRequest.current) return;
     const controller = new AbortController();
     moreRequest.current = controller;
     const revision = getArticleStateRevision();
@@ -240,39 +238,6 @@ export default function ReaderApp() {
     }
   }, [requestedLibrary]);
 
-  const restoreReadingPosition = useCallback(async (articleId: string, signal: AbortSignal) => {
-    resetMore();
-    restoreSignal.current = signal;
-    setRestoringScope(requestedLibrary);
-    try {
-      // Walk the same cursor chain as ordinary scrolling, preserving scope and
-      // deduplication. Stop immediately when the user cancels or leaves.
-      while (!signal.aborted) {
-        if (libraryHref(readFeedLocation(new URLSearchParams(window.location.search))) !== requestedLibrary) return false;
-        const cached = getCachedLibrary(requestedLibrary);
-        if (cached?.data.articles.some(article => article.id === articleId)) return true;
-        const cursor = cached?.data.nextCursor;
-        if (!cursor) return false;
-        const revision = getArticleStateRevision();
-        const url = new URL(requestedLibrary, window.location.origin);
-        url.searchParams.set("cursor", cursor);
-        const page = await request<Library>(`${url.pathname}${url.search}`, {
-          signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
-        });
-        if (signal.aborted) return false;
-        if (!appendLibraryPage(requestedLibrary, page, cursor, revision)) {
-          throw new Error("列表已更新，请重新点击回到上次位置。");
-        }
-      }
-      return false;
-    } finally {
-      if (restoreSignal.current === signal) {
-        restoreSignal.current = null;
-        setRestoringScope(null);
-      }
-    }
-  }, [requestedLibrary, resetMore]);
-
   useEffect(() => {
     resetMore();
     return () => { moreRequest.current?.abort(); moreRequest.current = null; };
@@ -280,13 +245,13 @@ export default function ReaderApp() {
 
   useEffect(() => {
     const sentinel = moreSentinel.current;
-    if (!sentinel || !feedReady || !snapshot?.data.nextCursor || loadingMore || moreError || restoringScope === requestedLibrary) return;
+    if (!sentinel || !feedReady || !snapshot?.data.nextCursor || loadingMore || moreError) return;
     const observer = new IntersectionObserver(entries => {
       if (entries.some(entry => entry.isIntersecting)) void loadMore();
     }, { rootMargin: "800px 0px" });
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [feedReady, snapshot?.data.nextCursor, loadingMore, moreError, loadMore, restoringScope, requestedLibrary]);
+  }, [feedReady, snapshot?.data.nextCursor, loadingMore, moreError, loadMore]);
 
   useEffect(() => {
     if (!feedReady) return;
@@ -528,7 +493,7 @@ export default function ReaderApp() {
 
   return (
     <div className="reading-room reader-custom-channels">
-      {feedReady && library && <FeedReadingMap key={requestedLibrary} articles={library.articles} scope={requestedLibrary} onRestore={restoreReadingPosition} />}
+      {feedReady && library && <FeedReadingMap key={requestedLibrary} articles={library.articles} />}
       <FeedNavigation mastheadRef={mastheadRef} headingRef={headingRef}
         channels={channels} channel={channel}
         onSelect={id => navigateFeed({ channel: id, source: "all" })} />
@@ -630,7 +595,7 @@ export default function ReaderApp() {
           <div ref={moreSentinel} className="feed-end" aria-live="polite">
             {library.nextCursor ? <>
               {moreError && <p role="alert">{moreError}</p>}
-              <button className="text-button feed-load-more" disabled={loadingMore || restoringScope === requestedLibrary} onClick={() => void loadMore()}>
+              <button className="text-button feed-load-more" disabled={loadingMore} onClick={() => void loadMore()}>
                 {loadingMore && <LoaderCircle size={14} className="spinning" aria-hidden="true" />}
                 {loadingMore ? "正在加载更多…" : moreError ? "点击重试" : "加载更多"}
               </button>
