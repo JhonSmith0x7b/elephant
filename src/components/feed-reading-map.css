@@ -1,8 +1,9 @@
 .reading-map-rail { position: fixed; z-index: 35; left: 12px; top: 22vh; width: 34px; display: flex; flex-direction: column; align-items: center; gap: 12px; color: var(--muted); }
 .reading-map-open { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; color: var(--muted); background: var(--paper); border-radius: 50%; }
 .reading-map-open:hover { color: var(--ink); background: var(--soft); }
-.reading-map-ticks { position: relative; width: 34px; max-height: 54vh; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
-.reading-map-ticks::-webkit-scrollbar { display: none; }
+.reading-map-ticks { display: flex; flex-direction: column; width: 34px; height: 54vh; }
+.reading-map-ticks .reading-map-item { flex: 1 1 0; min-height: 0; max-height: 24px; }
+.reading-map-ticks .reading-map-tick { height: min(2px, 70%); }
 .reading-map-item { display: flex; align-items: center; justify-content: flex-start; width: 32px; min-height: 24px; padding: 0 4px; border: 0; background: transparent; color: var(--secondary-ink); text-align: left; }
 .reading-map-tick { display: block; flex-shrink: 0; width: 11px; height: 2px; background: currentColor; opacity: .55; transition: width .15s, opacity .15s; }
 .reading-map-item.is-read { color: var(--muted); }
