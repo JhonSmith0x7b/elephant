@@ -510,7 +510,11 @@ describe("RSS imports against an isolated PostgreSQL schema", { skip: !originalD
     assert.deepEqual(stored!.version, version);
     const library = await listLibrary();
     assert.equal(library.counts.bookmarks, 1);
-    assert.equal(library.articles.find((article) => article.id === id)!.bookmarkedAt, first.bookmarkedAt);
+    let page = library;
+    while (!page.articles.some(article => article.id === id) && page.nextCursor) {
+      page = await listLibrary({ cursor: page.nextCursor });
+    }
+    assert.equal(page.articles.find((article) => article.id === id)?.bookmarkedAt, first.bookmarkedAt);
     const saved = await listBookmarks();
     assert.equal(saved.total, 1);
     assert.equal(saved.articles[0].id, id);
