@@ -1,7 +1,7 @@
 .stored-body-link {
   color: inherit;
   text-decoration: underline;
-  text-decoration-color: #9b9994;
+  text-decoration-color: var(--link-underline);
   text-underline-offset: 0.2em;
   overflow-wrap: anywhere;
 }
