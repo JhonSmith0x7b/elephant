@@ -65,8 +65,8 @@ test("Atom uses alternate links, Atom IDs, author names, XHTML and separate upda
   assert.equal(feed.items[1].publishedAt, null);
   assert.equal(feed.items[1].author, "Editorial Team");
   assert.equal(feed.items[1].imageUrl, "https://example.com/xhtml.jpg");
-  assert.equal(feed.items[1].content, "Nested text");
-  assert.equal(feed.items[2].content, "First bold words.");
+  assert.equal(feed.items[1].content, "Nested text\n\n![图片](https://example.com/xhtml.jpg)");
+  assert.equal(feed.items[2].content, "First bold words.\n\n![图片](https://example.com/encoded.jpg)");
   assert.equal(feed.items[2].imageUrl, "https://example.com/encoded.jpg");
 });
 

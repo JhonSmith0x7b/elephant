@@ -1,4 +1,4 @@
-export type ArticleTextPart = { text: string; href?: string };
+export type ArticleTextPart = { text: string; href?: string; image?: boolean };
 
 /** Destinations are navigation only: never interpret HTML or executable schemes. */
 export function articleLinkUrl(value: string, base?: string | null): string | undefined {
@@ -32,8 +32,10 @@ export function articleTextParts(text: string, base?: string | null): ArticleTex
     parts.push(part);
   };
   for (let i = 0; i < text.length;) {
-    if (text[i] === "[" && text[i - 1] !== "\\" && text[i - 1] !== "!") {
-      const labelEnd = closing(text, i, "[", "]");
+    const isImage = text[i] === "!" && text[i + 1] === "[" && text[i - 1] !== "\\";
+    if (isImage || (text[i] === "[" && text[i - 1] !== "\\" && text[i - 1] !== "!")) {
+      const labelStart = isImage ? i + 1 : i;
+      const labelEnd = closing(text, labelStart, "[", "]");
       if (labelEnd >= 0 && text[labelEnd + 1] === "(") {
         const end = closing(text, labelEnd + 1, "(", ")");
         if (end >= 0) {
@@ -41,7 +43,7 @@ export function articleTextParts(text: string, base?: string | null): ArticleTex
           // Common Markdown destinations can include a quoted hover title.
           const match = destination.match(/^(?:<([^<>]+)>|(\S+?))(?:\s+["'][\s\S]*["'])?$/);
           const href = match ? articleLinkUrl(match[1] || match[2], base) : undefined;
-          emit({ text: unescapeLabel(text.slice(i + 1, labelEnd)), ...(href ? { href } : {}) });
+          emit({ text: unescapeLabel(text.slice(labelStart + 1, labelEnd)), ...(href ? { href } : {}), ...(isImage ? { image: true } : {}) });
           i = end + 1;
           continue;
         }
@@ -63,7 +65,7 @@ export function articleTextParts(text: string, base?: string | null): ArticleTex
 }
 
 export function articlePlainText(text: string, base?: string | null): string {
-  return articleTextParts(text, base).map((part) => part.text).join("");
+  return articleTextParts(text, base).filter((part) => !part.image).map((part) => part.text).join("");
 }
 
 export function storedMarkdownLink(label: string, href: string): string {
