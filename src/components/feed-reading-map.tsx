@@ -29,7 +29,6 @@ export default function FeedReadingMap({ articles }: { articles: LibraryArticle[
   const [current, setCurrent] = useState("");
   const [preview, setPreview] = useState<{ title: string; top: number } | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
-  const rail = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let frame = 0;
@@ -48,21 +47,11 @@ export default function FeedReadingMap({ articles }: { articles: LibraryArticle[
     };
   }, [articles]);
 
-  useEffect(() => {
-    const container = rail.current;
-    const tick = container?.querySelector<HTMLElement>("[aria-current='location']");
-    if (container && tick) {
-      const top = tick.offsetTop;
-      if (top < container.scrollTop || top + tick.offsetHeight > container.scrollTop + container.clientHeight)
-        container.scrollTop = top - container.clientHeight / 2;
-    }
-  }, [current]);
-
   function jump(articleId: string) {
     const element = articleElement(articleId);
     if (!element) return;
     dialog.current?.close();
-    window.scrollTo({ top: Math.max(0, window.scrollY + element.getBoundingClientRect().top - 80), behavior: "instant" });
+    window.scrollTo({ top: articleId === articles[0]?.id ? 0 : Math.max(0, window.scrollY + element.getBoundingClientRect().top - 80), behavior: "instant" });
     setCurrent(articleId);
     setPreview(null);
   }
@@ -71,7 +60,7 @@ export default function FeedReadingMap({ articles }: { articles: LibraryArticle[
   return <>
     <nav className="reading-map-rail" aria-label="文章位置导航">
       <button className="reading-map-open" type="button" aria-label="打开文章标题列表" onClick={() => dialog.current?.showModal()}><ListTree size={17} /></button>
-      <div className="reading-map-ticks" ref={rail} onScroll={() => setPreview(null)}>{articles.map(article => <PositionButton key={article.id} article={article} active={current === article.id} onJump={() => jump(article.id)}
+      <div className="reading-map-ticks">{articles.map(article => <PositionButton key={article.id} article={article} active={current === article.id} onJump={() => jump(article.id)}
         onPreview={element => setPreview(element ? { title: article.title, top: Math.min(window.innerHeight - 150, Math.max(80, element.getBoundingClientRect().top - 10)) } : null)} />)}</div>
     </nav>
     {preview && <div className="reading-map-preview" style={{ top: preview.top }}>{preview.title}</div>}
