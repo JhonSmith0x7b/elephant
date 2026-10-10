@@ -102,6 +102,8 @@ export default function ReaderApp() {
     () => getCachedLibrary(requestedLibrary), () => null);
   const library = snapshot?.data ?? lastLibrary;
   const libraryRequest = useRef(0);
+  const previousLibrary = useRef(requestedLibrary);
+  const autoApplyLibrary = useRef<string | null>(null);
   const moreRequest = useRef<AbortController | null>(null);
   const moreSentinel = useRef<HTMLDivElement>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -173,6 +175,11 @@ export default function ReaderApp() {
       const next = await request<Library>(url, { signal: requestSignal });
       if (isCurrent()) {
         receiveLibrary(url, next, force, stateRevision);
+        if (autoApplyLibrary.current === url) {
+          resetMore();
+          applyPendingLibrary(url);
+          autoApplyLibrary.current = null;
+        }
         setLastLibrary(next);
       }
     } catch (error) {
@@ -190,10 +197,19 @@ export default function ReaderApp() {
   }, [loadLibrary]);
 
   useEffect(() => {
+    const switched = previousLibrary.current !== requestedLibrary;
+    previousLibrary.current = requestedLibrary;
+    if (switched) {
+      // Entering a different scope is a fresh reading intent. Apply cached
+      // updates now and the next response automatically; ordinary polls wait.
+      autoApplyLibrary.current = requestedLibrary;
+      resetMore();
+      applyPendingLibrary(requestedLibrary);
+    }
     const controller = new AbortController();
     loadLibrary(controller.signal).catch(() => undefined);
     return () => controller.abort();
-  }, [loadLibrary, requestedLibrary]);
+  }, [loadLibrary, requestedLibrary, resetMore]);
 
   const loadMore = useCallback(async () => {
     const previous = getCachedLibrary(requestedLibrary);
