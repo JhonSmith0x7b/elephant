@@ -56,6 +56,7 @@ export interface StoredArticle extends LibraryArticle {
 }
 
 export interface LibraryData {
+  nextCursor?: string | null;
   channels: ChannelRecord[];
   sources: LibrarySource[];
   articles: LibraryArticle[];

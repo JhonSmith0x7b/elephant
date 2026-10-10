@@ -6,7 +6,7 @@ export async function GET(request: Request) {
   try {
     await authorize(request);
     const params = new URL(request.url).searchParams;
-    return json(await listLibrary({ channel: params.get("channel") ?? undefined, source: params.get("source") ?? undefined }));
+    return json(await listLibrary({ channel: params.get("channel") ?? undefined, source: params.get("source") ?? undefined, cursor: params.get("cursor") }));
   }
   catch (error) { return apiError(error); }
 }

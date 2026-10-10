@@ -411,7 +411,11 @@ export async function getStoredArticle(id: string, sourceId?: string): Promise<S
   };
 }
 
-export async function listLibrary(options: { channel?: string; source?: string } = {}): Promise<LibraryData> {
+const LIBRARY_PAGE_SIZE = 30;
+
+export async function listLibrary(options: { channel?: string; source?: string; cursor?: string | null } = {}): Promise<LibraryData> {
+  const position = parseListCursor(options.cursor, "列表位置无效，请刷新后重试。");
+  const sortTime = sql`coalesce(${articles.publishedAt}, ${articles.firstSeenAt})`;
   const db = getDb();
   const [sourceRows, totals, bookmarkTotals, channelRows] = await Promise.all([
     db.select({ source: sources, channelName: channels.name, articleCount: count(articleSources.articleId) }).from(sources)
@@ -450,23 +454,31 @@ export async function listLibrary(options: { channel?: string; source?: string }
     LIMIT 1
   ), ${articles.sourceId})`;
   const [articleRows, scopedTotals] = await Promise.all([
-    db.select(libraryArticleColumns)
+    db.select({
+      article: libraryArticleColumns,
+      // Keep database microseconds: JS Dates would truncate the pagination key.
+      cursorTime: sql<string>`to_char(${sortTime} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+    })
       .from(articles).innerJoin(articleSources, and(eq(articleSources.articleId, articles.id), eq(articleSources.sourceId, selectedSource)))
       .innerJoin(sources, eq(articleSources.sourceId, sources.id))
       .innerJoin(channels, eq(channels.id, sources.channel))
       .leftJoin(articleBookmarks, eq(articleBookmarks.articleId, articles.id))
       .leftJoin(articleReads, eq(articleReads.articleId, articles.id))
-      .where(scope)
-      .orderBy(desc(sql`coalesce(${articles.publishedAt}, ${articles.firstSeenAt})`), desc(articles.id)).limit(100),
+      .where(and(scope, position ? sql`(${sortTime}, ${articles.id}) < (${position.time}::timestamptz, ${position.id}::uuid)` : undefined))
+      .orderBy(desc(sortTime), desc(articles.id)).limit(LIBRARY_PAGE_SIZE + 1),
     channel || source
       ? db.select({ count: count() }).from(articles)
         .innerJoin(sources, eq(articles.sourceId, sources.id)).where(scope)
       : Promise.resolve(totals),
   ]);
+  const visible = articleRows.slice(0, LIBRARY_PAGE_SIZE);
+  const last = visible.at(-1);
   return {
     channels: channelRows,
     sources: sourceRows.map(({ source, channelName, articleCount }) => ({ ...sourceRecord(source, channelName), articleCount })),
-    articles: articleRows.map(serializeArticle),
+    articles: visible.map(({ article }) => serializeArticle(article)),
+    nextCursor: articleRows.length > LIBRARY_PAGE_SIZE && last
+      ? Buffer.from(JSON.stringify([last.cursorTime, last.article.id])).toString("base64url") : null,
     articleCount: scopedTotals[0].count,
     counts: { sources: sourceRows.length, articles: totals[0].count, bookmarks: bookmarkTotals[0].count },
   };
@@ -518,9 +530,9 @@ export async function setArticleBookmark(articleId: string, bookmarked: boolean)
 }
 
 const BOOKMARK_PAGE_SIZE = 30;
-type BookmarkCursor = { time: string; id: string };
+type ListCursor = { time: string; id: string };
 
-function parseBookmarkCursor(value: string | null | undefined): BookmarkCursor | null {
+function parseListCursor(value: string | null | undefined, message: string): ListCursor | null {
   if (value == null) return null;
   try {
     if (!value || value.length > 256 || !/^[A-Za-z0-9_-]+$/.test(value)) throw new Error();
@@ -534,12 +546,12 @@ function parseBookmarkCursor(value: string | null | undefined): BookmarkCursor |
     if (time.startsWith("0000") || new Date(time).toISOString() !== `${time.slice(0, 23)}Z`) throw new Error();
     return { time, id };
   } catch {
-    throw new LibraryError("INVALID_CURSOR", "收藏列表位置无效，请重新打开收藏列表。");
+    throw new LibraryError("INVALID_CURSOR", message);
   }
 }
 
 export async function listBookmarks(cursor?: string | null): Promise<BookmarkListData> {
-  const position = parseBookmarkCursor(cursor);
+  const position = parseListCursor(cursor, "收藏列表位置无效，请重新打开收藏列表。");
   const db = getDb();
   const [rows, totals] = await Promise.all([
     db.select({

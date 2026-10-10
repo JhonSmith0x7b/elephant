@@ -574,7 +574,7 @@ describe("RSS imports against an isolated PostgreSQL schema", { skip: !originalD
     const [{ id }] = (await getPool().query("SELECT id FROM articles WHERE source_id = $1 AND external_id = 'old-saved-article'", [imported.sourceId])).rows;
     await setArticleBookmark(id, true);
     const library = await listLibrary();
-    assert.equal(library.articles.length, 100);
+    assert.equal(library.articles.length, 30);
     assert.equal(library.articles.some((article) => article.id === id), false);
     assert.equal(library.counts.bookmarks, 1);
     const saved = await listBookmarks();

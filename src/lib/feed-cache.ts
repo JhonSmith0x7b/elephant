@@ -12,6 +12,8 @@ const libraries = new Map<string, LibraryCacheEntry>();
 const listeners = new Set<() => void>();
 const stateChanges = new Map<string, Partial<Record<keyof ArticleState, StateChange>>>();
 const mustRefresh = new Set<string>();
+const appendedLibraries = new Set<string>();
+const resetRevisions = new Map<string, number>();
 let stateRevision = 0;
 let lastBookmarkRevision = 0;
 let knownBookmarkCount: number | null = null;
@@ -40,12 +42,7 @@ function sameContent(left: LibraryArticle[], right: LibraryArticle[]) {
   return JSON.stringify(content(left)) === JSON.stringify(content(right));
 }
 
-export function receiveLibrary(
-  key: string,
-  next: LibraryData,
-  force = false,
-  requestRevision = stateRevision,
-) {
+function reconcileState(next: LibraryData, requestRevision: number): LibraryData {
   const incoming: LibraryData = {
     ...next,
     articles: next.articles.map((article) => {
@@ -63,14 +60,37 @@ export function receiveLibrary(
   } else {
     knownBookmarkCount = incoming.counts.bookmarks;
   }
+  return incoming;
+}
+
+export function receiveLibrary(
+  key: string,
+  next: LibraryData,
+  force = false,
+  requestRevision = stateRevision,
+) {
+  const incoming = reconcileState(next, requestRevision);
   const requiresRefresh = mustRefresh.delete(key);
   const previous = libraries.get(key);
   let entry: LibraryCacheEntry;
-  if (!previous || force || requiresRefresh || (
-    previous.data.articleCount === incoming.articleCount
-    && sameContent(previous.data.articles, incoming.articles)
-  )) {
+  if (!previous || force || requiresRefresh) {
     entry = { data: incoming, pending: null, newCount: 0 };
+    appendedLibraries.delete(key);
+    resetRevisions.set(key, ++stateRevision);
+  } else if (
+    previous.data.articleCount === incoming.articleCount
+    && sameContent(previous.data.articles.slice(0, incoming.articles.length), incoming.articles)
+  ) {
+    const appended = appendedLibraries.has(key);
+    entry = {
+      data: {
+        ...incoming,
+        articles: [...incoming.articles, ...previous.data.articles.slice(incoming.articles.length)],
+        nextCursor: appended ? previous.data.nextCursor : incoming.nextCursor,
+      },
+      pending: null,
+      newCount: 0,
+    };
   } else {
     const incomingById = new Map(incoming.articles.map((article) => [article.id, article]));
     const displayedIds = new Set(previous.data.articles.map((article) => article.id));
@@ -78,6 +98,7 @@ export function receiveLibrary(
       data: {
         ...incoming,
         articleCount: previous.data.articleCount,
+        nextCursor: previous.data.nextCursor,
         articles: previous.data.articles.map((article) => {
           const updated = incomingById.get(article.id);
           return updated
@@ -91,14 +112,50 @@ export function receiveLibrary(
   }
   libraries.delete(key);
   libraries.set(key, entry);
-  if (libraries.size > 20) libraries.delete(libraries.keys().next().value!);
+  if (libraries.size > 20) {
+    const oldest = libraries.keys().next().value!;
+    libraries.delete(oldest);
+    appendedLibraries.delete(oldest);
+    resetRevisions.delete(oldest);
+  }
   notify();
+}
+
+export function appendLibraryPage(
+  key: string,
+  page: LibraryData,
+  expectedCursor: string,
+  requestRevision = stateRevision,
+): boolean {
+  const entry = libraries.get(key);
+  if (!entry || mustRefresh.has(key) || entry.data.nextCursor !== expectedCursor
+    || requestRevision < (resetRevisions.get(key) ?? 0)) return false;
+  const incoming = reconcileState(page, requestRevision);
+  const displayedIds = new Set(entry.data.articles.map((article) => article.id));
+  const additional = incoming.articles.filter((article) => {
+    if (displayedIds.has(article.id)) return false;
+    displayedIds.add(article.id);
+    return true;
+  });
+  libraries.set(key, {
+    ...entry,
+    data: {
+      ...entry.data,
+      articles: [...entry.data.articles, ...additional],
+      nextCursor: incoming.nextCursor,
+    },
+  });
+  appendedLibraries.add(key);
+  notify();
+  return true;
 }
 
 export function applyPendingLibrary(key: string) {
   const entry = libraries.get(key);
   if (!entry?.pending) return;
   libraries.set(key, { data: entry.pending, pending: null, newCount: 0 });
+  appendedLibraries.delete(key);
+  resetRevisions.set(key, ++stateRevision);
   notify();
 }
 
@@ -139,7 +196,11 @@ export function patchCachedArticle(
 export function invalidateOtherLibraries(key: string) {
   mustRefresh.add(key);
   for (const cachedKey of libraries.keys()) {
-    if (cachedKey !== key) libraries.delete(cachedKey);
+    if (cachedKey !== key) {
+      libraries.delete(cachedKey);
+      appendedLibraries.delete(cachedKey);
+      resetRevisions.delete(cachedKey);
+    }
   }
   notify();
 }
@@ -148,6 +209,8 @@ export function clearLibraryCache() {
   libraries.clear();
   stateChanges.clear();
   mustRefresh.clear();
+  appendedLibraries.clear();
+  resetRevisions.clear();
   knownBookmarkCount = null;
   lastBookmarkRevision = 0;
   stateRevision += 1;
