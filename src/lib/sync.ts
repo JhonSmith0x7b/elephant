@@ -147,26 +147,28 @@ export async function runDueSync(options: RunSyncOptions = {}): Promise<SyncStat
     const work = async () => {
       while (index < sources.length && Date.now() < startDeadline && !leaseLost) {
         const sourceId = sources[index++].id;
+        let expectedFeedUrl: string | undefined;
         try {
           if (!await ownsLease()) return;
           const source = await getSource(sourceId);
           if (!source) { result.sources--; continue; }
+          expectedFeedUrl = source.feedUrl;
           const feed = await boundedFetch(options.fetchFeed ?? previewFeed, source.feedUrl);
           if (!await ownsLease()) return;
           // importFetchedFeed rechecks deleted_at under the import transaction
           // lock, so deleting a subscription during fetch cannot restore it.
-          const imported = await importFetchedFeed(sourceId, feed);
+          const imported = await importFetchedFeed(sourceId, feed, source.feedUrl);
           result.succeeded++;
           result.inserted += imported.insertedCount;
           result.updated += imported.updatedCount;
         } catch (error) {
           if (!await ownsLease()) return;
-          if (error instanceof LibraryError && error.code === "SOURCE_NOT_FOUND") {
+          if (error instanceof LibraryError && ["SOURCE_NOT_FOUND", "SOURCE_CHANGED"].includes(error.code)) {
             result.sources--;
             continue;
           }
           result.failed++;
-          try { await recordSourceFailure(sourceId, safeFeedError(error)); }
+          try { await recordSourceFailure(sourceId, safeFeedError(error), expectedFeedUrl); }
           catch { lastError = "部分来源同步失败，且未能保存来源状态，请检查数据库连接。"; }
         }
       }

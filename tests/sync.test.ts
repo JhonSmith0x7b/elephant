@@ -6,7 +6,7 @@ import { migrate } from "../scripts/migrate";
 import { migrateSyncSettings } from "../scripts/migrate-sync-settings";
 import { startSyncWorker } from "../scripts/sync-worker";
 import { getPool } from "../src/lib/db";
-import { confirmImport, createPreview, deleteSource, getSource, listLibrary } from "../src/lib/library";
+import { confirmImport, createPreview, deleteSource, getSource, listLibrary, updateSource } from "../src/lib/library";
 import { getSyncStatus, runDueSync, updateSyncSettings } from "../src/lib/sync";
 import { RssError, type ParsedFeed } from "../src/lib/rss";
 import { GET, PUT } from "../src/app/api/sync/route";
@@ -201,6 +201,24 @@ describe("periodic RSS sync in an isolated PostgreSQL schema", { skip: !original
     assert.match((await getSource(broken.sourceId))!.lastError!, /503/);
     assert.equal((await getSource(healthy.sourceId))!.lastError, null);
     assert.equal((await listLibrary()).counts.articles, 1);
+  });
+
+  it("discards a fetch completed after its subscription URL changed", async () => {
+    const changed = await source();
+    const nextUrl = `https://new.example.invalid/${randomUUID()}/feed`;
+    const status = await runDueSync({ force: true, now: () => epoch, fetchFeed: async (url) => {
+      assert.equal(url, changed.url);
+      await updateSource(changed.sourceId, { feedUrl: nextUrl });
+      return feed(url);
+    } });
+    assert.deepEqual(status.lastResult, { sources: 0, succeeded: 0, failed: 0, inserted: 0, updated: 0 });
+    assert.equal((await listLibrary()).counts.articles, 0);
+    assert.equal((await getSource(changed.sourceId))!.lastError, null);
+    const refreshed = await runDueSync({ force: true, now: () => later(1), fetchFeed: async (url) => {
+      assert.equal(url, nextUrl);
+      return feed(url);
+    } });
+    assert.equal(refreshed.lastResult?.inserted, 1);
   });
 
   it("recovers expired leases without allowing an old worker to overwrite the recovered result", async () => {
