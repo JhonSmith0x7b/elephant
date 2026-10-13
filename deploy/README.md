@@ -42,10 +42,10 @@ Pull request 仅运行验证，不接触生产凭据。SSH 密钥禁止端口转
 网页仅绑定服务器 `127.0.0.1:3100`；数据库没有宿主机公开端口。通过 Tailscale Serve 为这个本地端口提供私有 HTTPS，例如：
 
 ```sh
-sudo tailscale serve --bg --https=10000 http://127.0.0.1:3100
+sudo tailscale funnel --bg --https=10000 http://127.0.0.1:3100
 ```
 
-`BETTER_AUTH_URL` 必须与实际 Tailscale HTTPS 访问地址（含端口）一致。不要为这个入口启用 Funnel；它应该只在 tailnet 内可访问。新增配置时保留机器上其他服务已有的 Serve / Funnel 设置。
+`BETTER_AUTH_URL` 必须与实际 Tailscale HTTPS 访问地址（含端口）一致。当前入口使用 Funnel 公网访问，应用本身要求管理员登录。新增配置时保留机器上其他服务已有的 Serve / Funnel 设置。
 
 同步 worker 随容器启动，每分钟检查页面中保存的计划。关闭浏览器或本机电脑不影响服务器同步。默认自动同步关闭，可在「管理来源」中开启。容器设置自动重启，服务器重启后由 Docker 恢复。
 

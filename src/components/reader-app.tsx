@@ -137,6 +137,14 @@ export default function ReaderApp() {
   const [movingSourceId, setMovingSourceId] = useState<string | null>(null);
   const [sourceMoveError, setSourceMoveError] = useState<{ id: string; message: string } | null>(null);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
+  const [sourceToEdit, setSourceToEdit] = useState<Source | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editUrl, setEditUrl] = useState("");
+  const [editChannel, setEditChannel] = useState("");
+  const [savingSource, setSavingSource] = useState(false);
+  const [sourceEditError, setSourceEditError] = useState("");
+  const editDialogRef = useRef<HTMLDialogElement>(null);
+  const editTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [sourceToDelete, setSourceToDelete] = useState<Source | null>(null);
   const [deletingSource, setDeletingSource] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
@@ -146,7 +154,7 @@ export default function ReaderApp() {
   const deleteCancelRef = useRef<HTMLButtonElement>(null);
   const deleteTriggerRef = useRef<HTMLElement | null>(null);
   const sourceToggleRef = useRef<HTMLButtonElement>(null);
-  const individualSourceBusy = refreshingId !== null || movingSourceId !== null || deletingSource;
+  const individualSourceBusy = refreshingId !== null || movingSourceId !== null || deletingSource || savingSource;
   const sourceBusy = individualSourceBusy || syncBusy;
   const [notice, setNotice] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
@@ -444,6 +452,59 @@ export default function ReaderApp() {
     }
   };
 
+  useEffect(() => {
+    const dialog = editDialogRef.current;
+    if (!dialog) return;
+    if (sourceToEdit && !dialog.open) dialog.showModal();
+    else if (!sourceToEdit && dialog.open) {
+      dialog.close();
+      if (editTriggerRef.current?.isConnected) editTriggerRef.current.focus();
+      else sourceToggleRef.current?.focus();
+    }
+  }, [sourceToEdit]);
+
+  const openSourceEdit = (source: Source, trigger: HTMLButtonElement) => {
+    if (sourceActionPending.current) return;
+    editTriggerRef.current = trigger;
+    setEditName(source.name);
+    setEditUrl(source.feedUrl);
+    setEditChannel(source.channel);
+    setSourceEditError("");
+    setSourceToEdit(source);
+  };
+
+  const closeSourceEdit = () => {
+    if (sourceActionPending.current) return;
+    setSourceToEdit(null);
+    setSourceEditError("");
+  };
+
+  const saveSource = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!sourceToEdit || sourceActionPending.current) return;
+    sourceActionPending.current = true;
+    setSavingSource(true);
+    setSourceEditError("");
+    try {
+      const { source: updated } = await request<{ source: SourceRecord }>(`/api/feeds/${encodeURIComponent(sourceToEdit.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: editName.trim(), feedUrl: editUrl.trim(), channel: editChannel }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (sourceId === updated.id && channel !== "all" && channel !== updated.channel) navigateFeed({ channel: updated.channel }, true);
+      setSourceToEdit(null);
+      setNotice(`已保存 ${updated.name}。可点击刷新，立即读取新地址的内容。`);
+      invalidateOtherLibraries(libraryHref(readFeedLocation(new URLSearchParams(window.location.search))));
+      await loadLibrary(undefined, true).catch((error: unknown) => setLibraryError(errorMessage(error)));
+    } catch (error) {
+      setSourceEditError(errorMessage(error));
+    } finally {
+      sourceActionPending.current = false;
+      setSavingSource(false);
+    }
+  };
+
   const openSourceDelete = (source: Source, trigger: HTMLButtonElement) => {
     if (sourceActionPending.current) return;
     deleteTriggerRef.current = trigger;
@@ -553,11 +614,11 @@ export default function ReaderApp() {
               <div className="source-info"><div className="source-name-row"><h3>{source.name}</h3><span className="source-channel">{source.channelName}</span></div>
                 <a className="source-url" href={source.feedUrl} target="_blank" rel="noopener noreferrer">{source.feedUrl}<ArrowUpRight size={12} /></a>
                 <p className="source-meta">{source.articleCount} 篇收录 <span>·</span> {source.lastFetchedAt ? `最近同步 ${dateLabel(source.lastFetchedAt, true)}` : "尚未同步"}</p>
-                {source.lastError && <p className="source-error">最近同步未完成：{source.lastError}</p>}
+                {source.lastError && <p className="source-error">同步提示：{source.lastError}</p>}
                 <div className="source-channel-editor"><label htmlFor={`source-channel-${source.id}`}>所属分类</label><select id={`source-channel-${source.id}`} aria-label={`${source.name}所属分类`} value={source.channel} onChange={event => moveSource(source, event.target.value)} disabled={sourceBusy}>{library.channels.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>{movingSourceId === source.id && <LoaderCircle size={13} className="spinning" aria-label="正在调整分类" />}</div>
                 {sourceMoveError?.id === source.id && <p className="source-error" role="alert">{sourceMoveError.message}</p>}
               </div>
-              <div className="source-actions"><button className="button secondary source-refresh" onClick={() => refreshSource(source)} disabled={sourceBusy} aria-label={`刷新 ${source.name}`}>
+              <div className="source-actions"><button className="text-button source-edit" onClick={event => openSourceEdit(source, event.currentTarget)} disabled={sourceBusy} aria-label={`编辑 ${source.name}`}><PencilLine size={14} /><span>编辑</span></button><button className="button secondary source-refresh" onClick={() => refreshSource(source)} disabled={sourceBusy} aria-label={`刷新 ${source.name}`}>
                 {refreshingId === source.id ? <LoaderCircle size={14} className="spinning" /> : <RefreshCw size={14} />}<span>{refreshingId === source.id ? "刷新中" : "刷新"}</span>
               </button><button className="text-button source-delete" onClick={event => openSourceDelete(source, event.currentTarget)} disabled={sourceBusy} aria-label={`删除 ${source.name}`}><Trash2 size={14} /><span>删除</span></button></div>
             </div>
@@ -607,6 +668,22 @@ export default function ReaderApp() {
       <footer className="page-footer"><span>大象 <span className="footer-divider">/</span> 留一点时间，给阅读。</span><span>文章保留原文出处 · 当前支持 RSS / Atom</span></footer>
 
       <ChannelManager open={showChannels} channels={library?.channels ?? []} onClose={() => setShowChannels(false)} onChange={updateChannel} />
+
+      <dialog ref={editDialogRef} className="import-dialog" aria-labelledby="source-edit-heading" aria-describedby="source-edit-description"
+        onCancel={event => { event.preventDefault(); closeSourceEdit(); }}
+        onClick={event => { if (event.target === event.currentTarget) closeSourceEdit(); }}>
+        <form className="dialog-content" onSubmit={saveSource}>
+          <div className="dialog-heading"><div><span className="small-label">MANAGE YOUR SOURCES</span><h2 id="source-edit-heading">编辑信息源</h2></div><button type="button" className="icon-button" onClick={closeSourceEdit} aria-label="关闭编辑窗口" disabled={savingSource}><X size={20} /></button></div>
+          <p className="dialog-intro" id="source-edit-description">更换订阅地址后，后续同步会读取新地址。已存文章、收藏和已读记录都会保留。</p>
+          <div className="preview-fields">
+            <div><label className="field-label" htmlFor="edit-source-name">来源名称</label><input id="edit-source-name" value={editName} onChange={event => setEditName(event.target.value)} required maxLength={120} disabled={savingSource} /></div>
+            <div><label className="field-label" htmlFor="edit-source-channel">所属分类</label><select id="edit-source-channel" value={editChannel} onChange={event => setEditChannel(event.target.value)} disabled={savingSource}>{library?.channels.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
+          </div>
+          <div className="source-edit-url"><label className="field-label" htmlFor="edit-source-url">RSS 订阅地址</label><input id="edit-source-url" type="url" value={editUrl} onChange={event => setEditUrl(event.target.value)} required spellCheck={false} autoCapitalize="none" disabled={savingSource} /></div>
+          {sourceEditError && <div className="error-message" role="alert">{sourceEditError}</div>}
+          <div className="dialog-footer source-delete-footer"><button type="button" className="button secondary" onClick={closeSourceEdit} disabled={savingSource}>取消</button><button type="submit" className="button primary" disabled={savingSource || !editName.trim() || !editUrl.trim()} aria-busy={savingSource}>{savingSource ? <LoaderCircle size={15} className="spinning" /> : <Check size={15} />}{savingSource ? "正在保存" : "保存修改"}</button></div>
+        </form>
+      </dialog>
 
       <dialog ref={deleteDialogRef} className="import-dialog source-delete-dialog" aria-labelledby="source-delete-heading" aria-describedby="source-delete-description"
         onCancel={event => { event.preventDefault(); closeSourceDelete(); }}

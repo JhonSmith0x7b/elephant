@@ -19,6 +19,12 @@ export interface SourceRecord {
   lastError: string | null;
 }
 
+export interface SourceUpdate {
+  name?: string;
+  feedUrl?: string;
+  channel?: SourceChannel;
+}
+
 export interface LibrarySource extends SourceRecord {
   articleCount: number;
 }

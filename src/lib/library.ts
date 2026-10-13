@@ -13,11 +13,13 @@ import {
   type ReadResult,
   type SourceChannel,
   type SourceRecord,
+  type SourceUpdate,
   type StoredArticle,
 } from "./contracts";
 import { contentVersionHash, extractVersionContent, type VersionContent } from "./article-content";
 import { itemIdentity } from "./article-identity";
 import type { ParsedFeed } from "./rss/types";
+import { validateFeedUrl } from "./rss/fetch";
 import { articleAliases, articleBookmarks, articleReads, articleSources, articles, articleVersions, channels, previewRecords, sources } from "./schema";
 
 export { LibraryError } from "./contracts";
@@ -86,15 +88,42 @@ export async function renameChannel(id: string, name: string): Promise<ChannelRe
   }
 }
 
-export async function updateSourceChannel(id: string, channelId: string): Promise<SourceRecord> {
+export async function updateSource(id: string, input: SourceUpdate): Promise<SourceRecord> {
   validateId(id);
+  if (input.name === undefined && input.feedUrl === undefined && input.channel === undefined) {
+    throw new LibraryError("EMPTY_UPDATE", "请填写需要修改的信息。");
+  }
+  const name = input.name?.trim();
+  if (name !== undefined && (!name || name.length > 120)) {
+    throw new LibraryError("INVALID_NAME", "来源名称应为 1–120 个字符。");
+  }
+  // Validate syntax and explicit local-host policy without requiring a live feed.
+  // The fetcher still checks DNS and every redirect before making requests.
+  const feedUrl = input.feedUrl === undefined ? undefined : validateFeedUrl(input.feedUrl).toString();
   return getDb().transaction(async (tx) => {
-    const channel = await requireChannel(tx, channelId);
-    const [source] = await tx.update(sources).set({ channel: channel.id })
-      .where(and(eq(sources.id, id), isNull(sources.deletedAt))).returning();
-    if (!source) throw new LibraryError("SOURCE_NOT_FOUND", "信息源不存在。", 404);
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(742619381)`);
+    const [current] = await tx.select().from(sources)
+      .where(and(eq(sources.id, id), isNull(sources.deletedAt))).for("update");
+    if (!current) throw new LibraryError("SOURCE_NOT_FOUND", "信息源不存在。", 404);
+    const channel = await requireChannel(tx, input.channel ?? current.channel);
+    if (feedUrl !== undefined && feedUrl !== current.feedUrl) {
+      const [existing] = await tx.select({ id: sources.id, deletedAt: sources.deletedAt })
+        .from(sources).where(eq(sources.feedUrl, feedUrl));
+      if (existing) throw new LibraryError("SOURCE_EXISTS", existing.deletedAt
+        ? "这个地址属于已删除的信息源，请重新导入该地址以恢复。"
+        : "这个订阅地址已经存在，请使用已有的信息源。", 409);
+    }
+    const changedUrl = feedUrl !== undefined && feedUrl !== current.feedUrl;
+    const [source] = await tx.update(sources).set({
+      name: name ?? current.name, feedUrl: feedUrl ?? current.feedUrl, channel: channel.id,
+      ...(changedUrl ? { lastError: null, lastFetchedAt: null } : {}),
+    }).where(eq(sources.id, id)).returning();
     return sourceRecord(source, channel.name);
   });
+}
+
+export async function updateSourceChannel(id: string, channelId: string): Promise<SourceRecord> {
+  return updateSource(id, { channel: channelId });
 }
 
 export async function deleteSource(id: string): Promise<{ sourceId: string }> {
@@ -289,7 +318,7 @@ async function writeFeed(
   await tx.update(sources).set({
     lastFetchedAt: now,
     lastError: damagedTitles
-      ? `上游 RSS 有 ${damagedTitles} 条标题含乱码，本次已跳过，已有文章保持原样。`
+      ? `上游 RSS 有 ${damagedTitles} 条标题含乱码，已跳过；其余正常条目已保存，已有文章保持原样。`
       : null,
   })
     .where(eq(sources.id, sourceId));
@@ -343,21 +372,25 @@ export async function getSource(id: string): Promise<SourceRecord | null> {
   return row ? sourceRecord(row.source, row.channelName) : null;
 }
 
-export async function importFetchedFeed(sourceId: string, feed: ParsedFeed): Promise<ImportResult> {
+export async function importFetchedFeed(sourceId: string, feed: ParsedFeed, expectedFeedUrl?: string): Promise<ImportResult> {
   validateId(sourceId);
   return getDb().transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(742619381)`);
     const [source] = await tx.select().from(sources)
       .where(and(eq(sources.id, sourceId), isNull(sources.deletedAt))).for("update");
     if (!source) throw new LibraryError("SOURCE_NOT_FOUND", "信息源不存在。", 404);
+    if (expectedFeedUrl !== undefined && source.feedUrl !== expectedFeedUrl) {
+      throw new LibraryError("SOURCE_CHANGED", "订阅地址已修改，请使用新地址重新同步。", 409);
+    }
     return writeFeed(tx, sourceId, feed);
   });
 }
 
-export async function recordSourceFailure(sourceId: string, error: string): Promise<void> {
+export async function recordSourceFailure(sourceId: string, error: string, expectedFeedUrl?: string): Promise<void> {
   validateId(sourceId);
   await getDb().update(sources).set({ lastError: error.slice(0, 500) })
-    .where(and(eq(sources.id, sourceId), isNull(sources.deletedAt)));
+    .where(and(eq(sources.id, sourceId), isNull(sources.deletedAt),
+      expectedFeedUrl === undefined ? undefined : eq(sources.feedUrl, expectedFeedUrl)));
 }
 
 const libraryArticleColumns = {
