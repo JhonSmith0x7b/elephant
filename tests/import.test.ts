@@ -247,6 +247,53 @@ describe("RSS imports against an isolated PostgreSQL schema", { skip: !originalD
     await setArticleRead(id, false);
   });
 
+  it("skips damaged summaries and bodies while retaining primary and source-specific versions", async () => {
+    const data = feed([
+      item("encoding-body", { title: "完整标题", content: "完整正文" }),
+      item("encoding-summary", { summary: "完整摘要" }),
+    ]);
+    const primary = await confirmImport(await createPreview(data), "Original text", "world");
+    const translated = await confirmImport(await createPreview(feed([
+      item("encoding-body", { title: "另一来源标题", content: "另一来源完整正文" }),
+    ])), "Other source", "world");
+    const rows = (await getPool().query("SELECT id, external_id FROM articles WHERE source_id = $1", [primary.sourceId])).rows;
+    const bodyId = rows.find((row) => row.external_id === "encoding-body").id;
+    const summaryId = rows.find((row) => row.external_id === "encoding-summary").id;
+    await setArticleBookmark(bodyId, true);
+    await setArticleRead(bodyId, true);
+    const original = await getStoredArticle(bodyId);
+    const secondary = await getStoredArticle(bodyId, translated.sourceId);
+    const originalSummary = await getStoredArticle(summaryId);
+    const damaged = parseFeed(`<rss version="2.0"><channel><title>News</title>
+      <item><guid>encoding-body</guid><link>https://example.com/articles/encoding-body</link><title>完整标题</title><description>正文&#xfffd;损坏</description></item>
+      <item><guid>encoding-summary</guid><link>https://example.com/articles/encoding-summary</link><title>完整标题</title><description>摘要�损坏</description></item>
+      <item><guid>encoding-damaged-new</guid><title>新文章标题</title><description>正文�损坏</description></item>
+      <item><guid>encoding-valid</guid><title>正常新闻</title><description>正常正文</description></item>
+      </channel></rss>`, data.url);
+    // A clean full-content field must not let a corrupt summary overwrite the card.
+    damaged.items[0].summary = "正常摘要";
+    damaged.items[1].content = "完整正文";
+    damaged.items[1].contentKind = "rss_content";
+    const result = await importFetchedFeed(primary.sourceId, damaged);
+    assert.equal(result.insertedCount, 1);
+    assert.equal(result.updatedCount, 0);
+    assert.equal(result.totalCount, 3);
+    await importFetchedFeed(translated.sourceId, { ...damaged, items: [damaged.items[0]] });
+    assert.deepEqual(await getStoredArticle(bodyId), original);
+    assert.deepEqual(await getStoredArticle(bodyId, translated.sourceId), secondary);
+    assert.deepEqual(await getStoredArticle(summaryId), originalSummary);
+    assert.match((await getSource(primary.sourceId))!.lastError!, /3 条摘要或正文含乱码/);
+    assert.equal((await getPool().query("SELECT count(*)::int AS n FROM article_versions WHERE article_id = $1", [bodyId])).rows[0].n, 2);
+
+    data.items[0].content = "上游修复后的正文";
+    await importFetchedFeed(primary.sourceId, data);
+    assert.equal((await getStoredArticle(bodyId))?.version?.body, "上游修复后的正文");
+    assert.deepEqual(await getStoredArticle(bodyId, translated.sourceId), secondary);
+    assert.equal((await getSource(primary.sourceId))?.lastError, null);
+    await setArticleBookmark(bodyId, false);
+    await setArticleRead(bodyId, false);
+  });
+
   it("stores complete immutable versions and reuses the exact current version on repeat or content reversion", async () => {
     const originalBody = "正文第一段。\n\n" + "完整内容。".repeat(6000);
     // No contentKind simulates a preview created before the version feature.
