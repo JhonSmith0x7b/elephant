@@ -211,12 +211,17 @@ async function writeFeed(
   const pendingVersions = new Map<string, VersionContent>();
   const memberships = new Map<string, typeof articleSources.$inferInsert>();
   let damagedTitles = 0;
+  let damagedContents = 0;
 
   for (const item of feed.items) {
     // Some publishers emit valid UTF-8 containing literal replacement characters.
-    // Keep the previous snapshot until the source supplies a readable title again.
+    // Keep the entire previous snapshot until the source supplies readable text.
     if (item.title.includes("\uFFFD")) {
       damagedTitles++;
+      continue;
+    }
+    if (item.summary?.includes("\uFFFD") || item.content?.includes("\uFFFD")) {
+      damagedContents++;
       continue;
     }
     const incomingKey = itemIdentity(item);
@@ -317,8 +322,11 @@ async function writeFeed(
   }
   await tx.update(sources).set({
     lastFetchedAt: now,
-    lastError: damagedTitles
-      ? `上游 RSS 有 ${damagedTitles} 条标题含乱码，已跳过；其余正常条目已保存，已有文章保持原样。`
+    lastError: damagedTitles || damagedContents
+      ? `上游 RSS 有 ${[
+        damagedTitles ? `${damagedTitles} 条标题含乱码` : null,
+        damagedContents ? `${damagedContents} 条摘要或正文含乱码` : null,
+      ].filter(Boolean).join("、")}，已跳过；其余正常条目已保存，已有文章保持原样。`
       : null,
   })
     .where(eq(sources.id, sourceId));
