@@ -18,6 +18,7 @@ import {
 } from "./contracts";
 import { contentVersionHash, extractVersionContent, type VersionContent } from "./article-content";
 import { itemIdentity } from "./article-identity";
+import type { ArticleSort } from "./article-sort";
 import type { ParsedFeed } from "./rss/types";
 import { validateFeedUrl } from "./rss/fetch";
 import { articleAliases, articleBookmarks, articleReads, articleSources, articles, articleVersions, channels, previewRecords, sources } from "./schema";
@@ -454,9 +455,11 @@ export async function getStoredArticle(id: string, sourceId?: string): Promise<S
 
 const LIBRARY_PAGE_SIZE = 30;
 
-export async function listLibrary(options: { channel?: string; source?: string; cursor?: string | null } = {}): Promise<LibraryData> {
+export async function listLibrary(options: { channel?: string; source?: string; cursor?: string | null; sort?: ArticleSort } = {}): Promise<LibraryData> {
   const position = parseListCursor(options.cursor, "列表位置无效，请刷新后重试。");
-  const sortTime = sql`coalesce(${articles.publishedAt}, ${articles.firstSeenAt})`;
+  const sortTime = options.sort === "collected"
+    ? sql`${articles.firstSeenAt}`
+    : sql`coalesce(${articles.publishedAt}, ${articles.firstSeenAt})`;
   const db = getDb();
   const [sourceRows, totals, bookmarkTotals, channelRows] = await Promise.all([
     db.select({ source: sources, channelName: channels.name, articleCount: count(articleSources.articleId) }).from(sources)

@@ -4,6 +4,7 @@ import { getPool } from "../src/lib/db";
 import { contentVersionHash, type VersionContent } from "../src/lib/article-content";
 import { migrateArticleIdentities } from "./migrate-article-identities";
 import { migrateSyncSettings } from "./migrate-sync-settings";
+import { migrateReaderSettings } from "./migrate-reader-settings";
 
 // Each statement is repeatable. A transaction keeps partial setup from being
 // mistaken for a ready database; duplicate articles retain their data and aliases.
@@ -176,6 +177,7 @@ export async function migrate(pool: Pool = getPool()): Promise<void> {
     `);
     await migrateArticleIdentities(client);
     await migrateSyncSettings(client);
+    await migrateReaderSettings(client);
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");

@@ -1,5 +1,6 @@
 "use client";
 
+import { normalizeArticleSort, type ArticleSort } from "@/lib/article-sort";
 import { ThemeSelect } from "./theme-provider";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -90,14 +91,23 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "操作未完成，请稍后重试。";
 }
 
-export default function ReaderApp() {
+export default function ReaderApp({ initialSort }: { initialSort: ArticleSort }) {
+  const [savedSort, setSavedSort] = useState(initialSort);
+  const [savingSort, setSavingSort] = useState(false);
+  const [sortError, setSortError] = useState("");
+  const sortRequest = useRef(false);
+  const currentLocation = useCallback(() => {
+    const location = readFeedLocation(new URLSearchParams(window.location.search));
+    return { ...location, sort: location.sort ?? savedSort };
+  }, [savedSort]);
   const mastheadRef = useRef<HTMLElement>(null);
   const headingRef = useRef<HTMLDivElement>(null);
   const [lastLibrary, setLastLibrary] = useState<Library | null>(null);
   const [loading, setLoading] = useState(true);
   const [libraryError, setLibraryError] = useState("");
   const searchParams = useSearchParams();
-  const requestedLocation = readFeedLocation(searchParams);
+  const parsedLocation = readFeedLocation(searchParams);
+  const requestedLocation = { ...parsedLocation, sort: parsedLocation.sort ?? savedSort };
   const requestedLibrary = libraryHref(requestedLocation);
   const snapshot = useSyncExternalStore(subscribeLibraryCache,
     () => getCachedLibrary(requestedLibrary), () => null);
@@ -121,16 +131,39 @@ export default function ReaderApp() {
   const sourceId = library && !library.sources.some(item => item.id === requestedLocation.source &&
     (channel === "all" || item.channel === channel)) ? "all" : requestedLocation.source;
   const view = requestedLocation.view;
-  const returnTo = feedHref({ channel, source: sourceId, view });
+  const returnTo = feedHref({ channel, source: sourceId, view, sort: requestedLocation.sort });
 
   const navigateFeed = (changes: Partial<FeedLocation>, replace = false) => {
-    const current = readFeedLocation(new URLSearchParams(window.location.search));
+    const current = currentLocation();
     const href = feedHref({ ...current, ...changes });
     if (href === `${window.location.pathname}${window.location.search}`) return;
     // Next.js synchronizes native history updates with useSearchParams.
     // Browser back/forward restores the scope and triggers its article query.
     if (replace) window.history.replaceState(null, "", href);
     else window.history.pushState(null, "", href);
+  };
+  const changeSort = async (sort: ArticleSort) => {
+    if (sortRequest.current || sort === requestedLocation.sort) return;
+    sortRequest.current = true;
+    setSavingSort(true);
+    setSortError("");
+    try {
+      const settings = await request<{ sort: ArticleSort }>("/api/reader-settings", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sort }), signal: AbortSignal.timeout(20_000),
+      });
+      resetMore();
+      feedReturnPositions.clear();
+      setLastLibrary(null);
+      setSavedSort(settings.sort);
+      navigateFeed({ sort: settings.sort }, true);
+      window.scrollTo({ top: 0, behavior: "instant" });
+    } catch (error) {
+      setSortError(errorMessage(error));
+    } finally {
+      sortRequest.current = false;
+      setSavingSort(false);
+    }
   };
   const [showSources, setShowSources] = useState(false);
   const [showChannels, setShowChannels] = useState(false);
@@ -170,14 +203,14 @@ export default function ReaderApp() {
 
   const loadLibrary = useCallback(async (signal?: AbortSignal, force = false) => {
     // Read the current URL even after an import or source change has navigated.
-    const url = libraryHref(readFeedLocation(new URLSearchParams(window.location.search)));
+    const url = libraryHref(currentLocation());
     if (force) resetMore();
     const requestId = ++libraryRequest.current;
     const stateRevision = getArticleStateRevision();
     const requestSignal = signal
       ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000);
     const isCurrent = () => !signal?.aborted && requestId === libraryRequest.current
-      && url === libraryHref(readFeedLocation(new URLSearchParams(window.location.search)));
+      && url === libraryHref(currentLocation());
     setLoading(true);
     setLibraryError("");
     try {
@@ -199,7 +232,7 @@ export default function ReaderApp() {
     } finally {
       if (isCurrent()) setLoading(false);
     }
-  }, [resetMore]);
+  }, [resetMore, currentLocation]);
 
   const onSourcesSynced = useCallback(() => {
     void loadLibrary().catch(() => undefined);
@@ -263,7 +296,7 @@ export default function ReaderApp() {
 
   useEffect(() => {
     if (!feedReady) return;
-    const key = feedHref(readFeedLocation(new URLSearchParams(window.location.search)));
+    const key = feedHref(currentLocation());
     const position = feedReturnPositions.get(key);
     if (position === undefined) return;
     const frame = requestAnimationFrame(() => {
@@ -271,7 +304,7 @@ export default function ReaderApp() {
       feedReturnPositions.delete(key);
     });
     return () => cancelAnimationFrame(frame);
-  }, [feedReady, requestedLibrary, view]);
+  }, [feedReady, requestedLibrary, view, currentLocation]);
 
   useEffect(() => {
     const refreshOnReturn = () => {
@@ -378,7 +411,7 @@ export default function ReaderApp() {
       navigateFeed({ channel: importChannel, source: "all" });
       setModalOpen(false);
       setNotice(`已导入 ${sourceName.trim()}，新增 ${result.insertedCount} 篇文章。`);
-      invalidateOtherLibraries(libraryHref(readFeedLocation(new URLSearchParams(window.location.search))));
+      invalidateOtherLibraries(libraryHref(currentLocation()));
       await loadLibrary(undefined, true).catch((error: unknown) => setLibraryError(errorMessage(error)));
     } catch (error) {
       setImportError(errorMessage(error));
@@ -442,7 +475,7 @@ export default function ReaderApp() {
       });
       if (sourceId === source.id && channel !== "all" && channel !== updated.channel) navigateFeed({ source: "all" }, true);
       setNotice(`已将 ${source.name} 及其收录文章归入「${updated.channelName}」。`);
-      invalidateOtherLibraries(libraryHref(readFeedLocation(new URLSearchParams(window.location.search))));
+      invalidateOtherLibraries(libraryHref(currentLocation()));
       await loadLibrary(undefined, true).catch((error: unknown) => setLibraryError(errorMessage(error)));
     } catch (error) {
       setSourceMoveError({ id: source.id, message: error instanceof Error && error.name === "TimeoutError" ? "请求超时，请稍后重试。" : errorMessage(error) });
@@ -495,7 +528,7 @@ export default function ReaderApp() {
       if (sourceId === updated.id && channel !== "all" && channel !== updated.channel) navigateFeed({ channel: updated.channel }, true);
       setSourceToEdit(null);
       setNotice(`已保存 ${updated.name}。可点击刷新，立即读取新地址的内容。`);
-      invalidateOtherLibraries(libraryHref(readFeedLocation(new URLSearchParams(window.location.search))));
+      invalidateOtherLibraries(libraryHref(currentLocation()));
       await loadLibrary(undefined, true).catch((error: unknown) => setLibraryError(errorMessage(error)));
     } catch (error) {
       setSourceEditError(errorMessage(error));
@@ -529,12 +562,12 @@ export default function ReaderApp() {
         method: "DELETE",
         signal: AbortSignal.timeout(20_000),
       });
-      if (readFeedLocation(new URLSearchParams(window.location.search)).source === source.id) {
+      if (currentLocation().source === source.id) {
         navigateFeed({ source: "all" }, true);
       }
       setSourceToDelete(null);
       setNotice(`已删除 ${source.name}，已存文章和收藏仍然保留。`);
-      invalidateOtherLibraries(libraryHref(readFeedLocation(new URLSearchParams(window.location.search))));
+      invalidateOtherLibraries(libraryHref(currentLocation()));
       await loadLibrary(undefined, true).catch(() => undefined);
     } catch (error) {
       setSourceDeleteError(error instanceof Error && error.name === "TimeoutError"
@@ -587,6 +620,14 @@ export default function ReaderApp() {
             <span className="section-caption">{library ? `${library.counts.sources} 个来源 · ${library.counts.articles} 篇收录` : "从一个好来源开始"}</span>
           </div>
           <div className="feed-update-area">
+            <label className="theme-select">排序
+              <select aria-label="文章排序方式" value={requestedLocation.sort} disabled={savingSort}
+                onChange={event => void changeSort(normalizeArticleSort(event.target.value))}>
+                <option value="published">按发布时间</option>
+                <option value="collected">按收录时间</option>
+              </select>
+            </label>
+            {sortError && <span role="alert">{sortError}</span>}
             {feedReady && <button className={`feed-update-button${snapshot?.pending ? " has-updates" : ""}`}
               disabled={loading && !snapshot?.pending} aria-busy={loading && !snapshot?.pending}
               onClick={() => {
@@ -651,7 +692,7 @@ export default function ReaderApp() {
               if (feedReturnPositions.size > 20) feedReturnPositions.delete(feedReturnPositions.keys().next().value!);
             }
           }}>
-            {articles.map((article) => <ArticleCard key={article.id} article={article} returnTo={returnTo} />)}
+            {articles.map((article) => <ArticleCard key={article.id} article={article} showCollectedDate={requestedLocation.sort === "collected"} returnTo={returnTo} />)}
           </div> : <div className="empty-filter"><BookOpen size={28} strokeWidth={1.3} /><h2>这里还没有文章</h2><p>{availableSources.length ? "可以在来源管理中刷新订阅，或查看其他来源。" : `为${activeName}板块导入一个来源，开始这部分的阅读。`}</p><button className="button secondary" onClick={() => openImport()}><Plus size={14} />导入 RSS</button></div>}
           <div ref={moreSentinel} className="feed-end" aria-live="polite">
             {library.nextCursor ? <>
