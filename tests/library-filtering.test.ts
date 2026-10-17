@@ -7,6 +7,8 @@ import { getDb, getPool } from "../src/lib/db";
 import { listLibrary } from "../src/lib/library";
 import { articleBookmarks, articleSources, articles, sources } from "../src/lib/schema";
 import { GET } from "../src/app/api/library/route";
+import { GET as getSettings, PUT as putSettings } from "../src/app/api/reader-settings/route";
+import { getReaderSettings } from "../src/lib/reader-settings";
 import type { LibraryData } from "../src/lib/contracts";
 
 const originalEnv = { ...process.env };
@@ -141,6 +143,30 @@ describe("library filtering before the feed limit in an isolated PostgreSQL sche
     assert.equal((await listLibrary({ channel: "literature" })).nextCursor, null);
   });
 
+  it("sorts by first collection time with exact pagination and unchanged filters", async () => {
+    // Deliberately disagree with publication order; exercise sub-millisecond ties.
+    await getPool().query(`UPDATE articles SET first_seen_at = CASE
+      WHEN published_at IS NULL THEN '2026-10-01T00:00:00.000124Z'::timestamptz
+      ELSE '2026-10-01T00:00:00.000123Z'::timestamptz END WHERE source_id = $1`, [worldSource]);
+    const expected = await getPool().query<{ id: string }>(
+      "SELECT id FROM articles WHERE source_id = $1 ORDER BY first_seen_at DESC, id DESC", [worldSource],
+    );
+    const published = await listLibrary({ source: worldSource });
+    const collected: string[] = [];
+    let cursor: string | null | undefined;
+    do {
+      const page = await listLibrary({ channel: "world", source: worldSource, sort: "collected", cursor });
+      assert.equal(page.articleCount, 125);
+      collected.push(...page.articles.map((article) => article.id));
+      cursor = page.nextCursor;
+      assert.ok(collected.length <= 125);
+    } while (cursor);
+    assert.deepEqual(collected, expected.rows.map((row) => row.id));
+    assert.equal(new Set(collected).size, 125);
+    assert.notDeepEqual(collected.slice(0, 30), published.articles.map((article) => article.id));
+    assert.equal((await listLibrary({ channel: "literature", sort: "collected" })).articleCount, 22);
+  });
+
   it("rejects malformed cursors before querying", async () => {
     const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
     for (const cursor of ["", "bad!", "a".repeat(257), encode({}), encode(["2026-02-30T00:00:00.000000Z", worldIds[0]]), encode(["2026-10-08T00:00:00.000123Z", "not-a-uuid"])]) {
@@ -165,7 +191,35 @@ describe("library filtering before the feed limit in an isolated PostgreSQL sche
     assert.equal(next.articles.length, 30);
     assert.ok(next.articles.every((article) => !first.articles.some((previous) => previous.id === article.id)));
     assert.equal(next.articleCount, 125);
+    const collectedResponse = await GET(new Request(`http://127.0.0.1:3000/api/library?source=${worldSource}&sort=collected`));
+    const collectedPage = await collectedResponse.json() as LibraryData;
+    assert.deepEqual(collectedPage, await listLibrary({ source: worldSource, sort: "collected" }));
+    assert.equal((await GET(new Request("http://127.0.0.1:3000/api/library?sort=updated"))).status, 400);
     const invalid = await GET(new Request("http://127.0.0.1:3000/api/library?cursor=bad!"));
     assert.equal(invalid.status, 400);
   });
+  it("persists owner sorting preferences across reads and repeat migrations and validates updates", async () => {
+    (process.env as Record<string, string | undefined>).NODE_ENV = "development";
+    process.env.LOCAL_DEV_AUTH_BYPASS = "1";
+    delete process.env.VERCEL;
+    const url = "http://127.0.0.1:3000/api/reader-settings";
+    const put = (body: unknown, origin = "http://127.0.0.1:3000") => putSettings(new Request(url, {
+      method: "PUT", headers: { "content-type": "application/json", origin }, body: JSON.stringify(body),
+    }));
+    assert.deepEqual(await getReaderSettings(), { sort: "published" });
+    assert.equal((await put({ sort: "collected" })).status, 200);
+    await migrate(getPool());
+    const response = await getSettings(new Request(url));
+    assert.equal(response.headers.get("cache-control"), "private, no-store");
+    assert.deepEqual(await response.json(), { sort: "collected" });
+    for (const value of [{}, { sort: "updated" }, { sort: null }, { sort: "published", extra: true }]) {
+      assert.equal((await put(value)).status, 400);
+      assert.deepEqual(await getReaderSettings(), { sort: "collected" });
+    }
+    assert.equal((await put({ sort: "published" }, "https://untrusted.example")).status, 403);
+    assert.deepEqual(await getReaderSettings(), { sort: "collected" });
+    assert.equal((await put({ sort: "published" })).status, 200);
+    assert.deepEqual(await getReaderSettings(), { sort: "published" });
+  });
+
 });

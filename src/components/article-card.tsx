@@ -24,16 +24,17 @@ function ArticleImage({ url, href, title }: { url: string; href: string; title: 
   </Link>;
 }
 
-export default function ArticleCard({ article, onBookmarkChange, showBookmarkDate = false, returnTo = "/" }: {
+export default function ArticleCard({ article, onBookmarkChange, showBookmarkDate = false, showCollectedDate = false, returnTo = "/" }: {
   article: LibraryArticle;
   onBookmarkChange?: (articleId: string, bookmarkedAt: string | null) => void;
   showBookmarkDate?: boolean;
+  showCollectedDate?: boolean;
   returnTo?: string;
 }) {
   const href = articleHref(article.id, returnTo, article.sourceId);
   const readStatus = useArticleRead(article.id, article.readAt);
   const date = showBookmarkDate && article.bookmarkedAt
-    ? article.bookmarkedAt : article.publishedAt || article.firstSeenAt;
+    ? article.bookmarkedAt : showCollectedDate ? article.firstSeenAt : article.publishedAt || article.firstSeenAt;
   return <article className={`article-card${article.imageUrl ? " has-image" : ""}${readStatus.readAt ? " is-read" : ""}`} aria-labelledby={`article-title-${article.id}`}>
     {article.imageUrl && <ArticleImage key={`${article.id}-${article.imageUrl}`} url={article.imageUrl} href={href} title={article.title} />}
     <div className="article-copy">
@@ -41,7 +42,7 @@ export default function ArticleCard({ article, onBookmarkChange, showBookmarkDat
       <h2 id={`article-title-${article.id}`}><Link href={href} prefetch={false}>{article.title}</Link></h2>
       {article.summary && <p className="article-summary">{article.summary}</p>}
       <div className="article-bottom">
-        <time dateTime={date}>{showBookmarkDate ? "收藏于 " : !article.publishedAt ? "收录于 " : ""}{dateLabel(date)}</time>
+        <time dateTime={date}>{showBookmarkDate ? "收藏于 " : showCollectedDate || !article.publishedAt ? "收录于 " : ""}{dateLabel(date)}</time>
         <div className="article-reading-links">
           <Link className="saved-reading-link" href={href} prefetch={false} aria-label={`阅读已保存版本：${article.title}`}>阅读已保存版本</Link>
           {article.url && <a className="original-reading-link" href={article.url} target="_blank" rel="noopener noreferrer" onClick={() => { if (!readStatus.readAt) void readStatus.setRead(true); }} aria-label={`在新窗口打开原文：${article.title}`}>原文<ArrowUpRight size={12} /></a>}

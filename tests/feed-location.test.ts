@@ -45,3 +45,14 @@ test("article links retain content source independently of return filters and ac
   assert.equal(articleSourceId([source]), undefined);
   assert.equal(articleSourceId(undefined, `https://evil.example/?source=${source}`), undefined);
 });
+
+test("sort order survives article return links and separates pagination caches", () => {
+  const location = { channel: "literature", source: "lit-hub", view: "cards" as const, sort: "collected" as const };
+  const from = feedHref(location);
+  assert.deepEqual(readFeedLocation(new URL(from, "https://reader.example").searchParams), location);
+  const article = new URL(articleHref("article-id", from), "https://reader.example");
+  assert.equal(feedReturnHref(article.searchParams.get("from")), from);
+  assert.equal(libraryHref(location), "/api/library?sort=collected&channel=literature&source=lit-hub");
+  assert.notEqual(libraryHref(location), libraryHref({ ...location, sort: "published" }));
+  assert.equal(readFeedLocation(new URLSearchParams("sort=invalid")).sort, undefined);
+});

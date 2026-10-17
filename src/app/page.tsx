@@ -1,3 +1,4 @@
+import { getReaderSettings } from "@/lib/reader-settings";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import ReaderApp from "@/components/reader-app";
@@ -11,5 +12,6 @@ export default async function Home() {
     }
     if (!await hasOwnerSession(await headers())) redirect("/login");
   }
-  return <ReaderApp />;
+  const settings = await getReaderSettings();
+  return <ReaderApp initialSort={settings.sort} />;
 }

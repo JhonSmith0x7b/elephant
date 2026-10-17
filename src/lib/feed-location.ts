@@ -1,11 +1,16 @@
+import type { ArticleSort } from "./article-sort";
+
 export interface FeedLocation {
   channel: string;
   source: string;
   view: "list" | "cards";
+  sort?: ArticleSort;
 }
 
 export function readFeedLocation(params: Pick<URLSearchParams, "get">): FeedLocation {
+  const sort = params.get("sort");
   return {
+    ...(sort === "published" || sort === "collected" ? { sort } : {}),
     channel: params.get("channel") || "all",
     source: params.get("source") || "all",
     view: params.get("layout") === "cards" ? "cards" : "list",
@@ -14,14 +19,16 @@ export function readFeedLocation(params: Pick<URLSearchParams, "get">): FeedLoca
 
 export function feedHref(location: FeedLocation): string {
   const params = new URLSearchParams();
+  if (location.sort) params.set("sort", location.sort);
   if (location.channel !== "all") params.set("channel", location.channel);
   if (location.source !== "all") params.set("source", location.source);
   if (location.view === "cards") params.set("layout", "cards");
   return params.size ? `/?${params}` : "/";
 }
 
-export function libraryHref(location: Pick<FeedLocation, "channel" | "source">): string {
+export function libraryHref(location: Pick<FeedLocation, "channel" | "source" | "sort">): string {
   const params = new URLSearchParams();
+  if (location.sort) params.set("sort", location.sort);
   if (location.channel !== "all") params.set("channel", location.channel);
   if (location.source !== "all") params.set("source", location.source);
   return params.size ? `/api/library?${params}` : "/api/library";
