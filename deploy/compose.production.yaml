@@ -11,7 +11,7 @@ x-app: &app
     BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Auth secret is required}
     ADMIN_EMAIL: ${ADMIN_EMAIL:?Owner email is required}
     RSS_DNS_MODE: system
-    RSS_LOCAL_FEED_HOSTS: ${RSS_LOCAL_FEED_HOSTS:-rss-service,reader.example-tailnet.ts.net}
+    RSS_LOCAL_FEED_HOSTS: ${RSS_LOCAL_FEED_HOSTS:?Allowed RSS hosts are required}
   networks: [default, rss]
   security_opt:
     - no-new-privileges:true
@@ -71,4 +71,4 @@ volumes:
 networks:
   rss:
     external: true
-    name: ${RSS_DOCKER_NETWORK:-rss_default}
+    name: ${RSS_DOCKER_NETWORK:?RSS network is required}

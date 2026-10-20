@@ -97,7 +97,7 @@ test("production allowlist fetches local feeds and rejects redirects to metadata
 test("only allowlisted Tailscale names can resolve to CGNAT and metadata stays blocked", async () => {
   Object.assign(process.env, { NODE_ENV: "production", RSS_LOCAL_FEED_HOSTS: "reader.example-tailnet.ts.net,reader.local" });
   const resolver = async () => [{address:"100.64.0.10", family:4}];
-  const url = "https://reader.example-tailnet.ts.net:10000/any2rss/feeds/example.xml?token=test";
+  const url = "https://reader.example-tailnet.ts.net:10000/rss/feeds/example.xml?token=test";
   const target = await resolvePublicTarget(url, resolver);
   assert.equal(target.address, "100.64.0.10");
   assert.equal(target.url.href, url);

@@ -70,6 +70,15 @@ tailscale serve status
 
 ## 同机 RSS 服务
 
-当前应用容器接入已有 `rss_default` 网络（可用 `RSS_DOCKER_NETWORK` 指定），web 和 worker 的 `RSS_LOCAL_FEED_HOSTS` 默认允许 `rss-service` 和 `reader.example-tailnet.ts.net`。订阅地址使用 `http://rss-service:8000/订阅路径`，无需公开宿主 8200 端口。重新部署自动恢复连接。部署到其他机器时需配置实际 RSS 网络和主机名。
+部署环境必须显式设置以下变量，不在代码中保存实际基础设施标识：
 
-也可直接导入原有 HTTPS Funnel 地址 `https://reader.example-tailnet.ts.net:10000/any2rss/feeds/文件.xml`，保留其 token 查询参数。指定 Tailscale 域名解析到 CGNAT 地址时允许访问，其他主机及元数据地址仍拦截。
+- `RSS_DOCKER_NETWORK`：已经存在的 RSS 服务 Docker 网络名称。
+- `RSS_LOCAL_FEED_HOSTS`：允许访问的 RSS 主机名列表，以逗号分隔。
+
+例如，测试环境可使用网络 `rss-network`、主机 `rss-service`，订阅 URL 为 `http://rss-service:8000/feeds/example.xml`。请在服务器私有环境文件中填写实际值，勿将真实地址、订阅 token 或配置文件提交到仓库。
+
+对于 Tailscale 域名同样需要显式允许主机；保留 DNS、重定向及云元数据地址校验，不得全局取消地址保护。
+
+## 私人运维资料
+
+本机的实际部署主机、域名、网络映射及排障记录放在 `.agents/private/`，该目录同时被 Git 和 Docker 忽略。此文档中的目录与端口是部署脚本的通用约定，不代表某个公开运行实例。
