@@ -124,4 +124,37 @@ describe("Private reader authentication against an isolated PostgreSQL schema", 
     await assert.rejects(authorize(new Request("http://localhost:3000/api/library")),
       (error: unknown) => error instanceof RequestError && error.status === 401);
   });
+
+  it("issues a one-year cookie and renews a valid legacy session through HTTP, not permission checks", async () => {
+    const response = await getAuth().handler(authRequest("sign-in/email", { email, password }));
+    assert.equal(response.status, 200);
+    const sessionCookie = response.headers.getSetCookie().find(value => value.includes("session_token="));
+    assert.ok(sessionCookie);
+    assert.match(sessionCookie, /Max-Age=31536000/i);
+    assert.match(sessionCookie, /HttpOnly/i);
+    assert.match(sessionCookie, /Secure/i);
+    const cookie = response.headers.getSetCookie().map(value => value.split(";")[0]).join("; ");
+    const session = await getAuth().api.getSession({ headers: new Headers({ Cookie: cookie }), query: { disableRefresh: true } });
+    assert.ok(session);
+    const yearMs = 365 * 24 * 60 * 60 * 1000;
+    assert.ok(Math.abs(session.session.expiresAt.getTime() - Date.now() - yearMs) < 10_000);
+
+    // Emulate an existing seven-day cookie. Never bulk-extend or revive sessions.
+    await appPool!.query('UPDATE session SET "expiresAt" = now() + interval \'6 days\', "updatedAt" = now() - interval \'1 day\' WHERE id = $1', [session.session.id]);
+    const before = (await appPool!.query('SELECT "expiresAt", "updatedAt" FROM session WHERE id = $1', [session.session.id])).rows[0];
+    assert.equal(await hasOwnerSession(new Headers({ Cookie: cookie })), true);
+    const afterCheck = (await appPool!.query('SELECT "expiresAt", "updatedAt" FROM session WHERE id = $1', [session.session.id])).rows[0];
+    assert.deepEqual(afterCheck, before, "Read-only authorization must not silently consume cookie renewal");
+
+    const renewed = await getAuth().handler(new Request(`${origin}/api/auth/get-session`, { headers: { Cookie: cookie } }));
+    assert.equal(renewed.status, 200);
+    assert.ok(renewed.headers.getSetCookie().some(value => /session_token=.*Max-Age=31536000/i.test(value)));
+    const afterRenew = (await appPool!.query('SELECT "expiresAt" FROM session WHERE id = $1', [session.session.id])).rows[0];
+    assert.ok(Math.abs(afterRenew.expiresAt.getTime() - Date.now() - yearMs) < 10_000);
+
+    await appPool!.query('UPDATE session SET "expiresAt" = now() - interval \'1 minute\' WHERE id = $1', [session.session.id]);
+    const expired = await getAuth().handler(new Request(`${origin}/api/auth/get-session`, { headers: { Cookie: cookie } }));
+    assert.equal(await expired.json(), null, "Expired sessions must require a fresh login");
+    assert.equal(await hasOwnerSession(new Headers({ Cookie: cookie })), false);
+  });
 });

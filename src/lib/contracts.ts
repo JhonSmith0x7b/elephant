@@ -100,6 +100,7 @@ export interface FeedPreview {
 }
 
 export interface ImportResult {
+  skippedItems?: number;
   sourceId: string;
   insertedCount: number;
   updatedCount: number;

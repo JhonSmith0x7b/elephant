@@ -37,3 +37,33 @@
   .sync-times { flex-direction: column; gap: 2px; }
   .sync-error { align-items: flex-start; }
 }
+.sync-history { margin-top: 17px; border-top: 1px solid var(--line); font-size: 12px; }
+.sync-history > summary { cursor: pointer; padding: 13px 0; color: var(--secondary-ink); }
+.sync-history > summary > span { margin-left: 12px; color: var(--muted); font-size: 11px; }
+.sync-history-content { padding-bottom: 4px; }
+.sync-history-tools { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.sync-history-tools p, .sync-history-empty { font-size: 11px; color: var(--muted); line-height: 1.8; }
+.sync-history-tools button { flex-shrink: 0; }
+.sync-history-run { border-bottom: 1px solid var(--line); }
+.sync-history-run > summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding: 12px 0; cursor: pointer; }
+.sync-history-run > summary::before { content: "+"; color: var(--muted); width: 9px; }
+.sync-history-run[open] > summary::before { content: "−"; }
+.sync-history-run > summary::-webkit-details-marker { display: none; }
+.sync-history-status { color: var(--secondary-ink); font-size: 11px; }
+.sync-history-status-partial, .sync-history-status-interrupted, .sync-history-status-skipped { color: var(--warning); }
+.sync-history-status-failed { color: var(--error); }
+.sync-history-counts, .sync-history-duration { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.sync-history-duration { margin-left: auto; }
+.sync-history-overview { color: var(--muted); line-height: 1.8; font-size: 11px; }
+.sync-history-sources { list-style: none; padding: 0 0 12px; margin: 10px 0 0; }
+.sync-history-sources li { padding: 8px 10px; background: var(--soft); }
+.sync-history-sources li + li { margin-top: 4px; }
+.sync-history-sources li > div { display: flex; justify-content: space-between; gap: 12px; }
+.sync-history-sources strong { font-weight: 500; overflow-wrap: anywhere; }
+.sync-history-sources p { margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.8; overflow-wrap: anywhere; }
+.sync-history summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+@media (max-width: 540px) {
+  .sync-history > summary > span { display: block; margin: 6px 0 0 16px; }
+  .sync-history-run > summary { gap: 6px 10px; }
+  .sync-history-counts { flex-basis: calc(100% - 70px); padding-left: 19px; }
+}

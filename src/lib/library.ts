@@ -333,7 +333,9 @@ async function writeFeed(
     .where(eq(sources.id, sourceId));
   const [totals] = await tx.select({ count: count() }).from(articleSources).where(eq(articleSources.sourceId, sourceId));
   const updatedCount = [...pending.keys()].filter((id) => existingIds.has(id)).length;
-  return { sourceId, insertedCount: pending.size - updatedCount, updatedCount, totalCount: totals.count };
+  return { sourceId, insertedCount: pending.size - updatedCount, updatedCount, totalCount: totals.count,
+    ...(damagedTitles + damagedContents ? { skippedItems: damagedTitles + damagedContents } : {}),
+  };
 }
 
 export async function confirmImport(

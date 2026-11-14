@@ -16,7 +16,7 @@ export function createAuth(allowSignUp = false) {
     database: getPool(),
     emailAndPassword: { enabled: true, disableSignUp: !allowSignUp },
     rateLimit: { enabled: true, storage: "database", window: 60, max: 30 },
-    session: { expiresIn: 60 * 60 * 24 * 7 },
+    session: { expiresIn: 60 * 60 * 24 * 365, updateAge: 60 * 60 * 24 },
   });
 }
 
@@ -26,6 +26,8 @@ export function getAuth() {
 }
 
 export async function hasOwnerSession(headers: Headers) {
-  const session = await getAuth().api.getSession({ headers });
+  // Permission checks cannot send a refreshed cookie from Server Components.
+  // SessionRefresh renews through the HTTP handler so DB and browser stay in sync.
+  const session = await getAuth().api.getSession({ headers, query: { disableRefresh: true } });
   return Boolean(session && process.env.ADMIN_EMAIL && session.user.email.toLowerCase() === process.env.ADMIN_EMAIL.trim().toLowerCase());
 }

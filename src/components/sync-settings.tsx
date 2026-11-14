@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { Check, Clock3, LoaderCircle, RefreshCw } from "lucide-react";
 import type { SyncStatus } from "@/lib/sync-contracts";
 import "./sync-settings.css";
+import SyncHistory from "./sync-history";
 
 const intervals = [
   [15, "每 15 分钟"], [30, "每 30 分钟"], [60, "每小时"], [120, "每 2 小时"],
@@ -138,7 +139,8 @@ export default function SyncSettings({ onSynced, onBusyChange, disabled = false 
       setStatusError("");
       setNotice(kind === "save" ? "设置已保存。" : result.running
         ? "同步正在进行，完成后会更新状态。"
-        : result.lastResult?.failed ? "同步已结束，部分来源未更新，请查看下方结果。" : "同步完成，文章列表已更新。");
+        : result.lastError || result.lastResult?.failed || result.lastResult?.skippedItems
+          ? "同步已结束，部分来源或条目未更新，请查看下方结果。" : "同步完成，文章列表已更新。");
     } catch (error) {
       if (sequence !== requestSequence.current) return;
       setActionError(controller.signal.aborted
@@ -220,10 +222,11 @@ export default function SyncSettings({ onSynced, onBusyChange, disabled = false 
             <div><dt>后台最近检查</dt><dd>{status.workerLastSeenAt ? timeLabel(status.workerLastSeenAt) : "尚未检测到"}</dd></div>
           </dl>
           {status.lastResult && <p className="sync-result">
-            上次同步 {status.lastResult.sources} 个来源，成功 {status.lastResult.succeeded} 个，失败 {status.lastResult.failed} 个；新增 {status.lastResult.inserted} 篇，更新 {status.lastResult.updated} 篇。
+            {status.lastResult.failed || status.lastResult.skippedItems ? "上次同步部分完成" : "上次同步完成"}：{status.lastResult.sources} 个来源，失败 {status.lastResult.failed} 个，{status.lastResult.warningSources ?? 0} 个来源有条目跳过；新增 {status.lastResult.inserted} 篇，处理已有 {status.lastResult.updated} 篇，跳过 {status.lastResult.skippedItems ?? 0} 篇。
           </p>}
           {status.lastError && <p className="sync-last-error">{status.lastError}</p>}
         </div>
+        <SyncHistory lastFinishedAt={status.lastFinishedAt} />
       </>}
       {actionError && <p className="sync-error" role="alert">{actionError}</p>}
       {notice && <p className="sync-notice" role="status">{notice}</p>}

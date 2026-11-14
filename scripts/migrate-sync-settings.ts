@@ -17,6 +17,16 @@ export async function migrateSyncSettings(client: PoolClient): Promise<void> {
       lease_token uuid,
       lease_expires_at timestamptz
     );
+    CREATE TABLE IF NOT EXISTS sync_runs (
+      id uuid PRIMARY KEY,
+      started_at timestamptz NOT NULL,
+      finished_at timestamptz,
+      status text NOT NULL CHECK (status IN ('running', 'success', 'partial', 'failed', 'interrupted')),
+      result jsonb NOT NULL,
+      source_results jsonb NOT NULL DEFAULT '[]'::jsonb,
+      error_code text
+    );
+    CREATE INDEX IF NOT EXISTS sync_runs_started_at_idx ON sync_runs (started_at DESC);
     INSERT INTO sync_settings (id) VALUES (true) ON CONFLICT (id) DO NOTHING;
   `);
 }

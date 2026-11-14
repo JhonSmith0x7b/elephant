@@ -1,0 +1,11 @@
+[Unit]
+Description=Back up Elephant daily
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 Asia/Shanghai
+RandomizedDelaySec=10m
+Persistent=true
+Unit=elephant-backup.service
+
+[Install]
+WantedBy=timers.target

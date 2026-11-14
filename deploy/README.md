@@ -53,7 +53,22 @@ sudo tailscale funnel --bg --https=10000 http://127.0.0.1:3100
 
 每次更新前备份 PostgreSQL；数据库卷不会因重新构建或替换应用容器而删除。旧镜像和发布配置保留。部署失败会尝试恢复上一版应用容器，数据库不会自动回写旧备份，因此自动回滚仅适用于向后兼容的迁移。涉及破坏性迁移时应另外安排恢复方案。
 
-如需要恢复数据库，先停止 web / worker，再核对备份并手动执行 `pg_restore`。不要运行 `docker compose down -v`。备份与旧镜像目前没有自动清理或异地复制，需要按磁盘占用自行管理。
+如需要恢复数据库，先停止 web / worker，再核对备份并手动执行 `pg_restore`。不要运行 `docker compose down -v`。
+
+每日备份使用 `deploy/backup.sh` 和 systemd timer：北京时间每天 03:00 起随机延迟最多 10 分钟执行；错过任务会在机器恢复后补跑。在线 `pg_dump` 不停止应用，与部署共用文件锁；归档目录校验成功后才发布文件并清理 30 天前的每日备份。每日备份放在 `backups/daily/`，不删除部署回滚备份或旧镜像。当前不包含异机复制。
+
+首次启用或更新备份脚本、单元时，在服务器仓库目录执行：
+
+```sh
+sudo install -m 0700 deploy/backup.sh /opt/elephant/bin/backup.sh
+sudo install -m 0644 deploy/elephant-backup.service deploy/elephant-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now elephant-backup.timer
+sudo systemctl start elephant-backup.service
+sudo systemctl status elephant-backup.timer elephant-backup.service
+```
+
+通过 `journalctl -u elephant-backup.service` 检查失败；归档目录校验不等于完整恢复演练，应定期在隔离数据库验证恢复。
 
 排查时可通过管理员 SSH 检查：
 

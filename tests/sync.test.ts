@@ -7,9 +7,10 @@ import { migrateSyncSettings } from "../scripts/migrate-sync-settings";
 import { startSyncWorker } from "../scripts/sync-worker";
 import { getPool } from "../src/lib/db";
 import { confirmImport, createPreview, deleteSource, getSource, listLibrary, updateSource } from "../src/lib/library";
-import { getSyncStatus, runDueSync, updateSyncSettings } from "../src/lib/sync";
+import { getSyncHistory, getSyncStatus, runDueSync, updateSyncSettings } from "../src/lib/sync";
 import { RssError, type ParsedFeed } from "../src/lib/rss";
 import { GET, PUT } from "../src/app/api/sync/route";
+import { GET as history } from "../src/app/api/sync/history/route";
 import { POST } from "../src/app/api/sync/run/route";
 import { GET as cron } from "../src/app/api/cron/sync/route";
 
@@ -51,7 +52,7 @@ describe("periodic RSS sync in an isolated PostgreSQL schema", { skip: !original
     delete process.env.CRON_SECRET;
     (process.env as Record<string, string | undefined>).NODE_ENV = "development";
     process.env.LOCAL_DEV_AUTH_BYPASS = "1";
-    await getPool().query("TRUNCATE sources, preview_records, sync_settings CASCADE");
+    await getPool().query("TRUNCATE sources, preview_records, sync_settings, sync_runs CASCADE");
     const client = await getPool().connect();
     try { await migrateSyncSettings(client); } finally { client.release(); }
   });
@@ -89,7 +90,7 @@ describe("periodic RSS sync in an isolated PostgreSQL schema", { skip: !original
     assert.equal((await updateSyncSettings({ enabled: true, intervalMinutes: 60 }, later(10))).nextRunAt, later(60).toISOString());
     const due = await runDueSync({ now: () => later(60), fetchFeed });
     assert.equal(fetched, 1);
-    assert.deepEqual(due.lastResult, { sources: 1, succeeded: 1, failed: 0, inserted: 1, updated: 0 });
+    assert.deepEqual(due.lastResult, { sources: 1, succeeded: 1, failed: 0, inserted: 1, updated: 0, warningSources: 0, skippedItems: 0 });
     assert.equal(due.nextRunAt, later(120).toISOString());
     assert.equal((await listLibrary()).counts.articles, 1);
     await runDueSync({ now: () => later(60), fetchFeed });
@@ -196,7 +197,7 @@ describe("periodic RSS sync in an isolated PostgreSQL schema", { skip: !original
       return feed(url);
     } });
     assert.ok(!requested.includes(gone.url));
-    assert.deepEqual(status.lastResult, { sources: 2, succeeded: 1, failed: 1, inserted: 1, updated: 0 });
+    assert.deepEqual(status.lastResult, { sources: 2, succeeded: 1, failed: 1, inserted: 1, updated: 0, warningSources: 0, skippedItems: 0 });
     assert.match(status.lastError!, /1 个来源/);
     assert.match((await getSource(broken.sourceId))!.lastError!, /503/);
     assert.equal((await getSource(healthy.sourceId))!.lastError, null);
@@ -211,7 +212,7 @@ describe("periodic RSS sync in an isolated PostgreSQL schema", { skip: !original
       await updateSource(changed.sourceId, { feedUrl: nextUrl });
       return feed(url);
     } });
-    assert.deepEqual(status.lastResult, { sources: 0, succeeded: 0, failed: 0, inserted: 0, updated: 0 });
+    assert.deepEqual(status.lastResult, { sources: 0, succeeded: 0, failed: 0, inserted: 0, updated: 0, warningSources: 0, skippedItems: 0 });
     assert.equal((await listLibrary()).counts.articles, 0);
     assert.equal((await getSource(changed.sourceId))!.lastError, null);
     const refreshed = await runDueSync({ force: true, now: () => later(1), fetchFeed: async (url) => {
@@ -237,6 +238,13 @@ describe("periodic RSS sync in an isolated PostgreSQL schema", { skip: !original
     await first;
     assert.deepEqual(await getSyncStatus(clock), recovered);
     assert.equal((await listLibrary()).articles[0].title, "Saved by background sync");
+    const runs = (await getSyncHistory(clock)).runs;
+    assert.equal(runs.length, 2);
+    assert.equal(runs[0].status, "success");
+    assert.equal(runs[1].status, "interrupted");
+    assert.equal(runs[1].errorCode, "LEASE_EXPIRED");
+    assert.equal(runs[1].sources.length, 0);
+
   });
 
   it("keeps interval changes and disabling made during a run", async () => {
@@ -272,7 +280,57 @@ describe("periodic RSS sync in an isolated PostgreSQL schema", { skip: !original
     assert.ok(done.lastStartedAt);
     assert.ok(done.lastFinishedAt);
     assert.equal(done.running, false);
-    assert.deepEqual(done.lastResult, { sources: 0, succeeded: 0, failed: 0, inserted: 0, updated: 0 });
+    assert.deepEqual(done.lastResult, { sources: 0, succeeded: 0, failed: 0, inserted: 0, updated: 0, warningSources: 0, skippedItems: 0 });
+  });
+
+  it("records partial imports, source failures and counters without saving upstream secrets", async () => {
+    const warning = await source();
+    const broken = await source();
+    const healthy = await source();
+    const done = await runDueSync({ force: true, now: () => epoch, fetchFeed: async (url) => {
+      if (url === broken.url) throw new RssError("HTTP_ERROR", "https://example.com/feed?token=must-not-persist", 502);
+      const data = feed(url);
+      if (url === warning.url) data.items.push({ ...data.items[0], externalId: "bad", content: "损坏�正文" });
+      return data;
+    } });
+    assert.equal(done.lastResult?.warningSources, 1);
+    assert.equal(done.lastResult?.skippedItems, 1);
+    assert.equal(done.lastResult?.failed, 1);
+    const { runs } = await getSyncHistory(epoch);
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0].status, "partial");
+    assert.equal(runs[0].sources.length, 3);
+    assert.equal(runs[0].sources.find(s => s.sourceId === warning.sourceId)?.errorCode, "DAMAGED_TEXT");
+    assert.equal(runs[0].sources.find(s => s.sourceId === broken.sourceId)?.errorCode, "HTTP_ERROR");
+    assert.equal(runs[0].sources.find(s => s.sourceId === healthy.sourceId)?.status, "success");
+    const stored = JSON.stringify((await getPool().query("SELECT * FROM sync_runs")).rows);
+    assert.ok(!stored.includes("must-not-persist"));
+    assert.ok(!stored.includes("https://"));
+    assert.ok(runs[0].sources.every(s => s.durationMs >= 0));
+    const partial = await runDueSync({ force: true, now: () => later(1), fetchFeed: async url => {
+      const data = feed(url); data.items[0].summary = "坏�摘要"; return data;
+    } });
+    assert.equal(partial.lastResult?.failed, 0);
+    assert.equal(partial.lastResult?.warningSources, 3);
+    assert.match(partial.lastError!, /部分同步/);
+    assert.equal((await getSyncHistory(later(1))).runs[0].status, "partial");
+  });
+
+  it("retains thirty days of runs and limits history responses to twenty entries", async () => {
+    const old = new Date(epoch.getTime() - 31 * 86400_000);
+    const recent = new Date(epoch.getTime() - 29 * 86400_000);
+    for (const date of [old, recent]) {
+      await getPool().query(`INSERT INTO sync_runs (id, started_at, status, result) VALUES ($1,$2,'success','{}')`, [randomUUID(), date]);
+    }
+    await runDueSync({ force: true, now: () => epoch });
+    assert.equal((await getPool().query("SELECT count(*)::int AS count FROM sync_runs")).rows[0].count, 2);
+    for (let i = 1; i <= 22; i++) await runDueSync({ force: true, now: () => later(i) });
+    const { runs } = await getSyncHistory(later(22));
+    assert.equal(runs.length, 20);
+    assert.equal(runs[0].startedAt, later(22).toISOString());
+    const response = await history(new Request("http://127.0.0.1:3000/api/sync/history"));
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "private, no-store");
   });
 
   it("protects settings/manual routes with owner authorization and same-origin checks", async () => {
@@ -292,6 +350,7 @@ describe("periodic RSS sync in an isolated PostgreSQL schema", { skip: !original
     process.env.LOCAL_DEV_AUTH_BYPASS = "0";
     delete process.env.ADMIN_EMAIL;
     assert.equal((await GET(new Request(url))).status, 503);
+    assert.equal((await history(new Request(`${url}/history`))).status, 503);
   });
 
   it("fails closed without a cron secret, rejects invalid bearer tokens and runs only when authorized", async () => {
