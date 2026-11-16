@@ -39,7 +39,7 @@ export default function ArticleCard({ article, onBookmarkChange, showBookmarkDat
     {article.imageUrl && <ArticleImage key={`${article.id}-${article.imageUrl}`} url={article.imageUrl} href={href} title={article.title} />}
     <div className="article-copy">
       <div className="article-meta"><span>{article.channelName}</span><span className="meta-dot">·</span><span>{article.sourceName}</span></div>
-      <h2 id={`article-title-${article.id}`}><Link href={href} prefetch={false}>{article.title}</Link></h2>
+      <h2 id={`article-title-${article.id}`}><Link href={href} prefetch={false} target="_blank" rel="noopener noreferrer">{article.title}</Link></h2>
       {article.summary && <p className="article-summary">{article.summary}</p>}
       <div className="article-bottom">
         <time dateTime={date}>{showBookmarkDate ? "收藏于 " : showCollectedDate || !article.publishedAt ? "收录于 " : ""}{dateLabel(date)}</time>
