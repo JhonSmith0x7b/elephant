@@ -16,7 +16,7 @@ import {
   type SourceUpdate,
   type StoredArticle,
 } from "./contracts";
-import { contentVersionHash, extractVersionContent, type VersionContent } from "./article-content";
+import { contentVersionHash, extractVersionContent, versionPlainText, type VersionContent } from "./article-content";
 import { itemIdentity } from "./article-identity";
 import type { ArticleSort } from "./article-sort";
 import type { ParsedFeed } from "./rss/types";
@@ -247,13 +247,14 @@ async function writeFeed(
     const primary = !match || match.sourceId === sourceId;
     const snapshotTitle = !acceptContent && currentContent ? currentContent.title : item.title;
     const snapshotSummary = !acceptContent && currentContent ? snapshot?.summary ?? null : item.summary;
+    const savedContent = contentByArticle.get(articleId);
     const article: Article = {
       id: articleId, sourceId: match?.sourceId ?? sourceId, identityKey,
       externalId: match && match.sourceId !== sourceId ? match.externalId : item.externalId || match?.externalId || null,
       title: primary ? snapshotTitle : match.title,
       url: match?.url ?? item.url,
       summary: primary ? snapshotSummary : match.summary,
-      textContent: primary ? contentByArticle.get(articleId)?.body ?? match?.textContent ?? null : match.textContent,
+      textContent: primary ? (savedContent ? versionPlainText(savedContent) : match?.textContent ?? null) : match.textContent,
       currentVersionId: match?.currentVersionId ?? null,
       imageUrl: item.imageUrl ?? match?.imageUrl ?? null,
       author: item.author ?? match?.author ?? null,
@@ -449,7 +450,7 @@ export async function getStoredArticle(id: string, sourceId?: string): Promise<S
   return {
     ...serializeArticle(row.article),
     version: version ? {
-      id: version.id, title: version.title, body: version.body, contentKind: version.contentKind,
+      id: version.id, title: version.title, body: version.body, contentKind: version.contentKind, contentFormat: version.contentFormat,
       language: version.language, contentHash: version.contentHash, storedAt: version.storedAt.toISOString(),
     } : null,
   };

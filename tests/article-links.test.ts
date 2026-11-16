@@ -12,15 +12,14 @@ const feed = (body: string) => parseFeed(`<rss version="2.0"><channel><title>Tes
 test("RSS preserves HTML link destinations and nested labels in body, with plain list summaries", () => {
   const item = feed('<p>Read <a href="../review?q=book&amp;edition=2"><strong>A [great]</strong> review</a>.</p><p>Next paragraph.</p>');
   assert.equal(item.summary, "Read A [great] review.\n\nNext paragraph.");
-  assert.equal(item.content, "Read [A \\[great\\] review](https://example.com/review?q=book&edition=2).\n\nNext paragraph.");
-  assert.deepEqual(articleTextParts(item.content!), [
-    { text: "Read " }, { text: "A [great] review", href: "https://example.com/review?q=book&edition=2" }, { text: ".\n\nNext paragraph." },
-  ]);
+  assert.equal(item.content, '<p>Read <a href="https://example.com/review?q=book&amp;edition=2"><strong>A [great]</strong> review</a>.</p><p>Next paragraph.</p>');
+  assert.equal(item.contentFormat, "html");
 });
 
 test("Markdown feeds retain clickable labels while summaries omit Markdown destinations", () => {
   const item = feed('读 [书评](../review "评论")，以及 [维基](https://example.com/Book_(novel))。');
   assert.equal(item.summary, "读 书评，以及 维基。");
+  assert.equal(item.contentFormat, "legacy");
   assert.deepEqual(articleTextParts(item.content!, base).filter((part) => part.href), [
     { text: "书评", href: "https://example.com/review" },
     { text: "维基", href: "https://example.com/Book_(novel)" },
@@ -56,7 +55,7 @@ test("link labels can wrap one line but cannot span paragraphs", () => {
   const broken = articleTextParts('[first\n\nsecond](https://example.com/)');
   assert.equal(broken[0].text, '[first\n\nsecond](');
   const item = feed('<a href="/review"><p>first</p><p>second</p></a>');
-  assert.equal(item.content, '[first second](https://example.com/review)');
+  assert.equal(item.content, '<a href="https://example.com/review"><p>first</p><p>second</p></a>');
 });
 
 test("stored links escape special label and destination characters without changing navigation", () => {
@@ -68,6 +67,6 @@ test("stored links escape special label and destination characters without chang
 
 test("Atom XHTML anchors survive content extraction with relative destinations", () => {
   const parsed = parseFeed(`<feed xmlns="http://www.w3.org/2005/Atom"><title>Test</title><entry><id>one</id><title>Article</title><link href="${base}"/><content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml"><p>Read <a href="../review">the review</a>.</p></div></content></entry></feed>`, "https://example.com/feed");
-  assert.equal(parsed.items[0].content, "Read [the review](https://example.com/review).");
+  assert.equal(parsed.items[0].content, '<div><p>Read <a href="https://example.com/review">the review</a>.</p></div>');
   assert.equal(parsed.items[0].summary, "Read the review.");
 });

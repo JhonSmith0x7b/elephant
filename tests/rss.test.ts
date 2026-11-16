@@ -17,7 +17,7 @@ test("36kr canonical links ignore RSS attribution without merging unrelated host
   assert.notEqual(normalizeArticleUrl("https://www.example.com/story"), normalizeArticleUrl("https://example.com/story"));
 });
 
-test("RSS 2.0 preserves attribution and original URL, while returning plain text and images", () => {
+test("RSS 2.0 preserves attribution and original URL, while returning plain summaries and rich bodies", () => {
   const feed = parseFeed(fixture("rss2.xml"), "https://example.com/feed/");
   assert.equal(feed.title, "Literary Test & Review");
   assert.equal(feed.description, "Books and people");
@@ -31,7 +31,7 @@ test("RSS 2.0 preserves attribution and original URL, while returning plain text
   assert.equal(item.title, "A book & a conversation");
   assert.equal(item.publishedAt, "2026-10-08T10:20:00.000Z");
   assert.equal(item.summary, "Read “closely”.");
-  assert.equal(item.content, "First paragraph.\n\nSecond paragraph & text.");
+  assert.equal(item.content, "<p>First paragraph.</p><p>Second <strong>paragraph</strong> &amp; text.</p>");
   assert.equal(item.contentKind, "rss_content");
   assert.equal(item.imageUrl, "https://example.com/cover.jpg");
   assert.doesNotMatch(JSON.stringify([item.summary, item.content]), /steal|display:none|<script/i);
@@ -65,8 +65,8 @@ test("Atom uses alternate links, Atom IDs, author names, XHTML and separate upda
   assert.equal(feed.items[1].publishedAt, null);
   assert.equal(feed.items[1].author, "Editorial Team");
   assert.equal(feed.items[1].imageUrl, "https://example.com/xhtml.jpg");
-  assert.equal(feed.items[1].content, "Nested text\n\n![图片](https://example.com/xhtml.jpg)");
-  assert.equal(feed.items[2].content, "First bold words.\n\n![图片](https://example.com/encoded.jpg)");
+  assert.equal(feed.items[1].content, '<div><p>Nested <strong>text</strong></p><img src="https://example.com/xhtml.jpg" alt=""></div>' );
+  assert.equal(feed.items[2].content, '<p>First <strong>bold</strong> words.</p><img src="https://example.com/encoded.jpg" alt="">' );
   assert.equal(feed.items[2].imageUrl, "https://example.com/encoded.jpg");
 });
 
@@ -74,7 +74,7 @@ test("Parser bounds feed size and article count while preserving the full readin
   const item = "<item><title>Book</title><description>Short</description></item>";
   const feed = parseFeed(`<rss><channel><title>Books</title>${item.repeat(151)}</channel></rss>`, "https://example.com/feed");
   assert.equal(feed.items.length, 150);
-  const expected = `${"a".repeat(31_000)}\n\nThe final paragraph & its ending.`;
+  const expected = `<p>${"a".repeat(31_000)}</p><p>The final <strong>paragraph</strong> &amp; its ending.</p>`;
   const long = parseFeed(`<rss xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Books</title><item><content:encoded><![CDATA[<p>${"a".repeat(31_000)}</p><p>The final <strong>paragraph</strong> &amp; its ending.</p><script>steal()</script>]]></content:encoded></item></channel></rss>`, "https://example.com/feed");
   assert.equal(long.items[0].content, expected);
   assert.equal(long.items[0].contentKind, "rss_content");
@@ -83,17 +83,17 @@ test("Parser bounds feed size and article count while preserving the full readin
 });
 
 test("Description fallback retains complete paragraphs as safe text and labels missing content", () => {
-  const expected = `Opening paragraph.\n\n${"b".repeat(31_000)}\n\nThe ending.`;
+  const expected = `<p>Opening <em>paragraph</em>.</p><p>${"b".repeat(31_000)}</p><p>The ending.</p>`;
   const description = `<p>Opening <em>paragraph</em>.</p><p>${"b".repeat(31_000)}</p><p>The ending.</p><script>steal()</script><style>body{display:none}</style><iframe>hidden</iframe>`;
   const rss = parseFeed(`<rss xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Books</title><item><description><![CDATA[${description}]]></description></item><item><content:encoded><![CDATA[<script>steal()</script>]]></content:encoded><description><![CDATA[<p>Safe fallback.</p>]]></description></item><item><title>Empty article</title></item></channel></rss>`, "https://example.com/feed");
   assert.equal(rss.items[0].content, expected);
   assert.equal(rss.items[0].contentKind, "rss_description");
   assert.equal(rss.items[0].summary?.length, 1200);
-  assert.equal(rss.items[1].content, "Safe fallback.");
+  assert.equal(rss.items[1].content, "<p>Safe fallback.</p>");
   assert.equal(rss.items[1].contentKind, "rss_description");
   assert.equal(rss.items[2].content, null);
   assert.equal(rss.items[2].contentKind, "rss_description");
-  assert.doesNotMatch(rss.items[0].content ?? "", /steal|display:none|hidden|<\/?[a-z]/i);
+  assert.doesNotMatch(rss.items[0].content ?? "", /steal|display:none|hidden|<script/i);
 
   const atom = parseFeed(`<feed xmlns="http://www.w3.org/2005/Atom"><title>Books</title><entry><id>summary-only</id><summary type="html"><![CDATA[${description}]]></summary></entry></feed>`, "https://example.com/feed");
   assert.equal(atom.items[0].content, expected);
@@ -120,7 +120,7 @@ test("HTTP 200 browser verification HTML is reported as blocked access, not malf
 test("verification words or an embedded HTML document inside RSS are not mistaken for a blocked response", () => {
   const feed = parseFeed('<rss><channel><title>安全资讯</title><item><title>正在进行安全检测</title><description><![CDATA[<html><body><p>Checking your browser</p></body></html>]]></description></item></channel></rss>', "https://example.com/feed");
   assert.equal(feed.items[0].title, "正在进行安全检测");
-  assert.equal(feed.items[0].content, "Checking your browser");
+  assert.equal(feed.items[0].content, "<p>Checking your browser</p>");
 });
 
 test("URL normalization only removes fragments and recognized tracking parameters", () => {

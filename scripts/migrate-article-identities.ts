@@ -1,5 +1,6 @@
 import type { PoolClient } from "pg";
 import { articleUrlIdentity } from "../src/lib/article-identity";
+import { sanitizeArticleHtml } from "../src/lib/article-rich-text";
 
 type SavedArticle = {
   id: string; identity_key: string; url: string | null; summary: string | null;
@@ -10,7 +11,7 @@ type SavedArticle = {
 
 type SavedVersion = {
   id: string; article_id: string; title: string; body: string;
-  content_kind: string; language: string | null; content_hash: string;
+  content_kind: string; content_format: string; language: string | null; content_hash: string;
   stored_at: Date;
 };
 
@@ -32,7 +33,7 @@ async function mergeVersions(client: PoolClient, survivorId: string, articles: S
       continue;
     }
     if (retained.title !== version.title || retained.body !== version.body
-      || retained.content_kind !== version.content_kind || retained.language !== version.language) {
+      || retained.content_kind !== version.content_kind || retained.content_format !== version.content_format || retained.language !== version.language) {
       throw new Error(`文章版本哈希冲突，已取消合并：${version.id}`);
     }
     // Preserve the earliest observation of identical content and keep pointers
@@ -103,7 +104,8 @@ async function mergeArticles(client: PoolClient, articles: SavedArticle[], ident
     current_version_id = COALESCE($3, current_version_id), title = COALESCE($4, title),
     text_content = COALESCE($5, text_content), summary = $6, image_url = $7, author = $8,
     published_at = $9, updated_at = $10, last_fetched_at = $11 WHERE id = $1`, [
-    survivor.id, identity, bestVersion?.id ?? null, bestVersion?.title ?? null, bestVersion?.body ?? null,
+    survivor.id, identity, bestVersion?.id ?? null, bestVersion?.title ?? null,
+    bestVersion ? (bestVersion.content_format === "html" ? sanitizeArticleHtml(bestVersion.body).text : bestVersion.body) : null,
     metadata.find((article) => article.summary)?.summary ?? null,
     survivor.image_url ?? metadata.find((article) => article.image_url)?.image_url ?? null,
     survivor.author ?? metadata.find((article) => article.author)?.author ?? null,

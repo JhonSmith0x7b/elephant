@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 import { Pool } from "pg";
 import { migrate } from "../scripts/migrate";
@@ -23,6 +23,7 @@ import {
 } from "../src/lib/library";
 import type { ParsedFeed, ParsedFeedItem } from "../src/lib/rss/types";
 import { parseFeed } from "../src/lib/rss/parse";
+import { contentVersionHash } from "../src/lib/article-content";
 
 const originalDatabaseUrl = process.env.DATABASE_URL;
 const schemaName = `rss_import_test_${randomUUID().replaceAll("-", "")}`;
@@ -323,6 +324,55 @@ describe("RSS imports against an isolated PostgreSQL schema", { skip: !originalD
     const versions = await getPool().query("SELECT count(*)::int AS count FROM article_versions WHERE article_id = $1", [articleId]);
     assert.equal(versions.rows[0].count, 2);
     assert.equal("textContent" in (await listLibrary()).articles.find((article) => article.id === articleId)!, false);
+  });
+
+  it("upgrades legacy bodies to HTML without losing source versions, bookmarks or reading state", async () => {
+    const original = feed([item("rich-format", { title: "Format example", content: "Heading\n\nSome **literal** text.", contentKind: "rss_content" })]);
+    const first = await confirmImport(await createPreview(original), "Original format", "literature");
+    const [{ id }] = (await getPool().query("SELECT id FROM articles WHERE source_id=$1", [first.sourceId])).rows;
+    await setArticleBookmark(id, true);
+    await setArticleRead(id, true);
+    const before = (await getStoredArticle(id))!;
+    assert.equal(before.version!.contentFormat, "legacy");
+    const oldHash = createHash("sha256").update(JSON.stringify([
+      before.version!.title, before.version!.body, before.version!.contentKind, before.version!.language,
+    ])).digest("hex");
+    assert.equal(before.version!.contentHash, oldHash, "Existing legacy hashes remain stable");
+
+    const secondary = feed([item("rich-format", { title: "Other source title", content: "Another source's saved text." })]);
+    const second = await confirmImport(await createPreview(secondary), "Other format source", "world");
+    const secondaryBefore = (await getStoredArticle(id, second.sourceId))!;
+    original.items[0].contentFormat = "html";
+    original.items[0].content = '<h2>Heading</h2><p>Some <strong>important</strong> text.</p><script>alert(1)</script>';
+    await importFetchedFeed(first.sourceId, original);
+    const rich = (await getStoredArticle(id, first.sourceId))!;
+    assert.equal(rich.id, before.id);
+    assert.equal(rich.firstSeenAt, before.firstSeenAt);
+    assert.equal(rich.readAt, before.readAt);
+    assert.equal(rich.bookmarkedAt, before.bookmarkedAt);
+    assert.equal(rich.version!.contentFormat, "html");
+    assert.match(rich.version!.body, /<h2>Heading<\/h2>/);
+    assert.match(rich.version!.body, /<strong>important<\/strong>/);
+    assert.doesNotMatch(rich.version!.body, /script|alert/);
+    assert.notEqual(rich.version!.id, before.version!.id);
+    assert.deepEqual(await getStoredArticle(id, second.sourceId), secondaryBefore);
+    const text = (await getPool().query("SELECT text_content FROM articles WHERE id=$1", [id])).rows[0].text_content;
+    assert.doesNotMatch(text, /<[^>]+>/);
+    assert.match(text, /Some important text/);
+    assert.notEqual(contentVersionHash({ ...rich.version!, contentFormat: "legacy" }), rich.version!.contentHash,
+      "The same character sequence has different identities in legacy and HTML formats");
+
+    await importFetchedFeed(first.sourceId, original);
+    assert.deepEqual((await getStoredArticle(id, first.sourceId))!.version, rich.version);
+    await migrate(getPool());
+    assert.deepEqual((await getStoredArticle(id, first.sourceId))!.version, rich.version);
+    assert.deepEqual((await getStoredArticle(id, second.sourceId))!.version, secondaryBefore.version);
+    const historical = (await getPool().query("SELECT body,content_format FROM article_versions WHERE id=$1", [before.version!.id])).rows[0];
+    assert.equal(historical.body, before.version!.body);
+    assert.equal(historical.content_format, "legacy");
+    assert.equal((await getPool().query("SELECT count(*)::int AS n FROM article_versions WHERE article_id=$1", [id])).rows[0].n, 3);
+    await setArticleBookmark(id, false);
+    await setArticleRead(id, false);
   });
 
   it("versions title, language, and content kind changes independently", async () => {

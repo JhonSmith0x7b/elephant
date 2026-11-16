@@ -102,6 +102,8 @@ export async function migrate(pool: Pool = getPool()): Promise<void> {
         content_hash text NOT NULL,
         stored_at timestamptz NOT NULL DEFAULT now()
       );
+      ALTER TABLE article_versions ADD COLUMN IF NOT EXISTS content_format text
+        NOT NULL DEFAULT 'legacy' CHECK (content_format IN ('legacy', 'html'));
       CREATE UNIQUE INDEX IF NOT EXISTS article_versions_article_hash_key ON article_versions (article_id, content_hash);
       -- Retain retired translations independently of live article lifecycles.
       -- New databases never create this archive or an active translation table.

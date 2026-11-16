@@ -1,7 +1,8 @@
+import { articleRichTextNodes, sanitizeArticleHtml } from "../article-rich-text";
 import { articleLinkUrl, articlePlainText, storedMarkdownLink } from "../article-links";
+import { Parser as HtmlParser } from "htmlparser2";
 import { createHash } from "node:crypto";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
-import { Parser as HtmlParser } from "htmlparser2";
 import { MAX_FEED_BYTES, validateFeedUrl } from "./fetch";
 import { RssError, type ParsedFeed, type ParsedFeedItem } from "./types";
 
@@ -65,7 +66,19 @@ export function normalizeArticleUrl(input: string, base = input): string | null 
   return url.href;
 }
 
-function readHtml(value: unknown, base: string): { text: string; body: string; imageUrl: string | null } {
+function readHtml(value: unknown, base: string): { text: string; body: string; imageUrl: string | null; format: "legacy" | "html" } {
+  const raw = string(value);
+  const allowImageUrl = (url: string) => safeHttpUrl(url, base) !== null;
+  const result = sanitizeArticleHtml(raw, base, allowImageUrl);
+  const nodes = articleRichTextNodes(raw, base, allowImageUrl);
+  const format = nodes.some(node => node.type === "element") ? "html" : "legacy";
+  const body = format === "html" ? result.html : nodes.map(node => node.type === "text" ? node.text : "").join("").trim();
+  return { text: result.text, body, imageUrl: result.imageUrl, format };
+}
+
+// Identity compatibility only: feeds without GUID/permalink must keep the exact
+// pre-rich-text digest, including its historical whitespace and image encoding.
+function legacyIdentityHtml(value: unknown, base: string): { text: string; body: string; imageUrl: string | null } {
   const parts: string[] = [];
   const bodyParts: string[] = [];
   let anchor: { start: number; href: string } | null = null;
@@ -200,7 +213,14 @@ function parseItem(item: unknown, feed: unknown, feedUrl: string, atom: boolean)
   const summary = readHtml(summaryValue, base);
   const publishedAt = date(field(item, atom ? "published" : "pubDate") ?? (!atom ? field(item, "date") : undefined));
   const normalizedUrl = url ? normalizeArticleUrl(url) : null;
-  const hash = createHash("sha256").update(JSON.stringify([title, publishedAt, summary.text || summary.body, content.text || content.body])).digest("hex");
+  let hash = "";
+  if (!guid && !normalizedUrl) {
+    const oldSummary = legacyIdentityHtml(summaryValue, base);
+    const oldContent = legacyIdentityHtml(contentValue, base);
+    const oldTitle = legacyIdentityHtml(field(item, "title"), base).text.slice(0, 500) || "未命名文章";
+    hash = createHash("sha256").update(JSON.stringify([oldTitle, publishedAt,
+      oldSummary.text || oldSummary.body, oldContent.text || oldContent.body])).digest("hex");
+  }
   return {
     externalId: guid || normalizedUrl || hash,
     idKind: guid ? "guid" : normalizedUrl ? "url" : "hash",
@@ -211,6 +231,7 @@ function parseItem(item: unknown, feed: unknown, feedUrl: string, atom: boolean)
     updatedAt: date(field(item, "updated") ?? field(item, "modified")),
     summary: (summary.text || content.text).slice(0, 1200) || null,
     content: content.body || summary.body || null,
+    contentFormat: content.body ? content.format : summary.format,
     contentKind: content.body ? "rss_content" : "rss_description",
     imageUrl: mediaImage(item, base) ?? content.imageUrl ?? summary.imageUrl,
   };

@@ -11,9 +11,11 @@ export interface ParsedFeedItem {
   updatedAt: string | null;
   /** Plain text only. Never render any feed field using dangerouslySetInnerHTML. */
   summary: string | null;
-  /** Full plain text supplied by the feed, falling back to its description. */
+  /** Stored body supplied by the feed, falling back to its description. */
   content: string | null;
   contentKind?: "rss_content" | "rss_description";
+  /** Missing on older previews, whose bodies use the legacy text/link format. */
+  contentFormat?: "legacy" | "html";
   imageUrl: string | null;
 }
 

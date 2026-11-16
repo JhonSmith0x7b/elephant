@@ -10,7 +10,7 @@ import {
   uuid,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
-import type { ContentKind, ImportResult, SourceChannel } from "./contracts";
+import type { ContentFormat, ContentKind, ImportResult, SourceChannel } from "./contracts";
 import type { ParsedFeed } from "./rss/types";
 
 export const sources = pgTable("sources", {
@@ -82,6 +82,7 @@ export const articleVersions = pgTable("article_versions", {
   title: text("title").notNull(),
   body: text("body").notNull(),
   contentKind: text("content_kind").$type<ContentKind>().notNull(),
+  contentFormat: text("content_format").$type<ContentFormat>().notNull().default("legacy"),
   language: text("language"),
   contentHash: text("content_hash").notNull(),
   storedAt: timestamp("stored_at", { withTimezone: true }).notNull().defaultNow(),

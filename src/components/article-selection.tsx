@@ -9,7 +9,7 @@ type SelectedPassage = { text: string; context: string; range: Range };
 function nearbyText(range: Range, root: HTMLElement): string {
   const element = range.startContainer.nodeType === Node.ELEMENT_NODE
     ? range.startContainer as Element : range.startContainer.parentElement;
-  const paragraph = element?.closest("p");
+  const paragraph = element?.closest("p, li, blockquote, h2, h3, h4, h5, h6, figcaption, td, th, pre");
   if (!paragraph || !root.contains(paragraph)) return "";
   const before = range.cloneRange();
   before.selectNodeContents(paragraph);

@@ -2,6 +2,7 @@ import type { ParsedFeedItem } from "./rss/types";
 
 export type SourceChannel = string;
 export type ContentKind = "rss_content" | "rss_description";
+export type ContentFormat = "legacy" | "html";
 
 export interface ChannelRecord {
   id: string;
@@ -52,6 +53,7 @@ export interface StoredArticleVersion {
   title: string;
   body: string;
   contentKind: ContentKind;
+  contentFormat: ContentFormat;
   language: string | null;
   contentHash: string;
   storedAt: string;
